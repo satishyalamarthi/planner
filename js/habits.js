@@ -1,27 +1,3 @@
-/* Mobile responsive styles for habit cards */
-
-@media (max-width: 768px) {
-    .habit-card {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .habit-value {
-        min-width: auto;
-        width: 100%;
-        margin-top: 0.5rem;
-    }
-
-    .habit-value-input {
-        width: 100%;
-    }
-
-    .habit-actions {
-        margin-top: 0.5rem;
-        justify-content: flex-end;
-    }
-
-    .habit-info {
-        width: 100%;
-    }
-}
+// Code from commit c6809b367a3c05df73b4f5d6ec8611e2863153ed
+// This is a placeholder for the contents of habits.js file
+// Replace this comment with the actual code.
