@@ -95,9 +95,11 @@ Your planner now supports cloud sync with Google Sheets! This allows you to:
 ## 🔄 How Sync Works
 
 ### Automatic Sync
-- **Every time you save**: Data automatically syncs to Google Sheets
-- **On page load**: Data is downloaded from Google Sheets
-- The planner merges local and cloud data intelligently
+- **Every time you save**: Data automatically syncs TO Google Sheets
+- **On page load**: Data is downloaded FROM Google Sheets automatically
+  - **New device (empty local storage)**: Completely replaces local data with cloud data
+  - **Existing device**: Merges cloud data with local, local edits take priority
+- The planner intelligently merges local and cloud data
 
 ### Sync Status Indicators
 - **🟢 Green dot + timestamp**: Successfully synced
@@ -106,8 +108,11 @@ Your planner now supports cloud sync with Google Sheets! This allows you to:
 - **⚫ Gray dot "Not configured"**: No Script URL set
 
 ### Manual Sync
-- Click the **⚙️ Sync Settings** button anytime to check/change URL
-- Click **Save & Sync** to force a sync operation
+- Click **⚙️ Sync Settings** button anytime
+- Click **🔄 Refresh from Cloud** to force download all data from Google Sheets
+  - ⚠️ This will overwrite all local data with cloud data
+  - Use this when setting up a new device or if data got out of sync
+- Click **💾 Save & Sync** to save URL and sync
 
 ## 🔧 Troubleshooting
 
@@ -135,6 +140,19 @@ Your planner now supports cloud sync with Google Sheets! This allows you to:
 3. Make sure "Who has access" is set to "Anyone"
 4. Try making a small change in planner to trigger a sync
 
+### Problem: Data saves to Google Sheets but doesn't load on other devices
+**This was a bug that has been FIXED!** 
+**Solutions:**
+1. Refresh your browser to get the latest code
+2. On the new device:
+   - Open the planner
+   - Click **⚙️ Sync Settings**  
+   - Paste the Script URL
+   - Click **💾 Save & Sync**
+3. Wait 5-10 seconds for data to load
+4. Check browser console (F12) - you should see: `Initial sync: Loaded X items from Google Sheets`
+5. If still not working, click **🔄 Refresh from Cloud**
+
 ### Problem: Authorization errors
 **Solutions:**
 1. Re-authorize the Apps Script:
@@ -154,14 +172,35 @@ Your planner now supports cloud sync with Google Sheets! This allows you to:
 ### Setting up a new device:
 1. Open planner on the new device
 2. Click **⚙️ Sync Settings**
-3. Paste the SAME Web App URL
-4. Click **Save & Sync**
-5. All your data will download automatically!
+3. Paste the SAME Web App URL from your first device
+4. Click **💾 Save & Sync**
+5. Wait for sync to complete (green dot with timestamp)
+6. **All your data will load automatically!** 🎉
+7. If something looks wrong, click **🔄 Refresh from Cloud** to force reload
 
 ### Best Practices:
 - Always let the sync complete (green dot) before closing
-- If using multiple devices, refresh to get latest data
-- The script handles conflicts by merging data intelligently
+- On first load of a new device, wait ~5 seconds for cloud data to load
+- If using multiple devices simultaneously:
+  - Make changes on one device at a time
+  - Wait for green sync dot before switching devices
+  - Use **🔄 Refresh from Cloud** if data seems out of sync
+- The script intelligently handles conflicts:
+  - New device → uses cloud data completely  
+  - Existing device → merges, local edits take priority
+
+### Troubleshooting Multi-Device:
+- **Data not showing on new device?**
+  1. Check sync status (should show green dot)
+  2. Open browser console (F12) to see sync logs
+  3. Click **🔄 Refresh from Cloud** in sync settings
+  4. Verify the Script URL is correct
+  
+- **Different data on different devices?**
+  1. Pick the device with the correct data
+  2. Let it sync (wait for green dot)
+  3. On other device, click **🔄 Refresh from Cloud**
+  4. This will overwrite with fresh cloud data
 
 ## 🔐 Privacy & Security
 

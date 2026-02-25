@@ -340,6 +340,7 @@ textarea:focus,input[type=text]:focus,input[type=number]:focus{border-color:var(
     <input type="text" id="plannerScriptUrl" placeholder="https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec">
     <div class="sync-modal-btns">
       <button class="modal-btn-secondary" onclick="closeSyncSettings()">Cancel</button>
+      <button class="modal-btn-secondary" onclick="manualSyncFromCloud()" style="background:linear-gradient(135deg,var(--blue),var(--teal))">🔄 Refresh from Cloud</button>
       <button class="modal-btn-primary" onclick="savePlannerScriptUrl()">💾 Save & Sync</button>
     </div>
   </div>
@@ -677,7 +678,20 @@ async function loadFromSheets(){
   try{
     const serverData=await plannerAPI({action:'getAll'});
     if(serverData&&Object.keys(serverData).length>0){
-      db={...serverData,...db};
+      // Check if local storage is empty (new device)
+      const localKeys=Object.keys(db).length;
+      const serverKeys=Object.keys(serverData).length;
+      
+      if(localKeys===0&&serverKeys>0){
+        // New device: use server data completely
+        db=serverData;
+        console.log(`Initial sync: Loaded ${serverKeys} items from Google Sheets`);
+      }else{
+        // Merge: server data first, then local (local takes priority for conflicts)
+        // This allows local edits to persist while getting new server data
+        db={...serverData,...db};
+        console.log(`Merge sync: ${serverKeys} server items, ${localKeys} local items`);
+      }
       localStorage.setItem(SK,JSON.stringify(db));
     }
     setSyncStatus('ok','Synced · '+new Date().toLocaleTimeString());
@@ -712,6 +726,25 @@ async function savePlannerScriptUrl(){
   }else{
     setSyncStatus('err','Not configured');
     toast('Script URL cleared');
+  }
+}
+async function manualSyncFromCloud(){
+  if(!PLANNER_SCRIPT_URL){
+    toast('⚠️ Configure Script URL first');
+    return;
+  }
+  closeSyncSettings();
+  toast('🔄 Refreshing from cloud...');
+  // Force reload: clear local and pull from server
+  const serverData=await plannerAPI({action:'getAll'});
+  if(serverData&&Object.keys(serverData).length>0){
+    db=serverData;
+    localStorage.setItem(SK,JSON.stringify(db));
+    setSyncStatus('ok','Synced · '+new Date().toLocaleTimeString());
+    toast('✓ Data refreshed from Google Sheets!');
+    updateAll();
+  }else{
+    toast('⚠️ No data found in Google Sheets');
   }
 }
 function updateAll(){
@@ -1889,10 +1922,14 @@ const mondayOffset=dayOfWeek===0?6:dayOfWeek-1;
 cW=Math.floor((now.getDate()+fdow(cY,cM)-mondayOffset-1)/7);
 updDisp();rCal();
 
-// Initialize sync status
+// Initialize sync status and load from cloud
 if(PLANNER_SCRIPT_URL){
-  setSyncStatus('ok','Ready to sync');
-  loadFromSheets();
+  setSyncStatus('syncing','Loading from cloud...');
+  // Load from sheets first (async), which will call updateAll() when done
+  loadFromSheets().catch(err=>{
+    console.error('Initial sync failed:',err);
+    setSyncStatus('err','Sync failed');
+  });
 }else{
   setSyncStatus('err','Not configured');
 }
