@@ -188,16 +188,28 @@ function getAll() {
   Logger.log('  - Habits: ' + habits.length);
   Logger.log('  - Completion habit IDs: ' + Object.keys(completions).length);
   Logger.log('  - QtyLog habit IDs: ' + Object.keys(qtyLogs).length);
-  Object.keys(qtyLogs).forEach(habitId => {
-    const habit = habits.find(h => h.id === habitId);
-    const habitName = habit ? habit.name : 'Unknown';
-    Logger.log('    - ' + habitName + ' (' + habitId + '): ' + Object.keys(qtyLogs[habitId]).length + ' entries');
-    Object.keys(qtyLogs[habitId]).forEach(dateKey => {
-      Logger.log('      - ' + dateKey + ': ' + qtyLogs[habitId][dateKey]);
+  
+  if (Object.keys(qtyLogs).length > 0) {
+    Logger.log('QtyLogs details:');
+    Object.keys(qtyLogs).forEach(habitId => {
+      const habit = habits.find(h => h.id === habitId);
+      const habitName = habit ? habit.name : 'Unknown';
+      Logger.log('  - ' + habitName + ' (' + habitId + '): ' + Object.keys(qtyLogs[habitId]).length + ' entries');
+      Object.keys(qtyLogs[habitId]).forEach(dateKey => {
+        Logger.log('    - ' + dateKey + ': ' + qtyLogs[habitId][dateKey]);
+      });
     });
-  });
+  } else {
+    Logger.log('  ⚠️ WARNING: qtyLogs is empty!');
+  }
+  
+  // Verify the return object structure
+  const returnObj = { habits: habits, completions: completions, qtyLogs: qtyLogs };
+  Logger.log('Return object keys: ' + Object.keys(returnObj).join(', '));
+  Logger.log('Return object.qtyLogs type: ' + typeof returnObj.qtyLogs);
+  Logger.log('Return object.qtyLogs: ' + JSON.stringify(returnObj.qtyLogs));
 
-  return { habits, completions, qtyLogs };
+  return returnObj;
 }
 
 // ── SAVE HABIT ───────────────────────────────────────────────────

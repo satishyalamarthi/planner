@@ -844,6 +844,8 @@ function setSyncStatus(status, msg) {
 // Debug info for mobile - triple click sync label to see
 let debugClickCount = 0;
 let debugClickTimer = null;
+let lastServerResponse = null; // Store last server response for debugging
+
 function showDebugInfo() {
   debugClickCount++;
   
@@ -860,6 +862,16 @@ function showDebugInfo() {
     debugMsg += `Total habits: ${habits.length}\n`;
     debugMsg += `Qty habits: ${qtyHabits.length}\n`;
     debugMsg += `Total qty logs: ${qtyLogCount}\n`;
+    
+    // Check what server sent
+    if (lastServerResponse) {
+      const serverQtyLogCount = lastServerResponse.qtyLogs 
+        ? Object.keys(lastServerResponse.qtyLogs).reduce((sum, hid) => sum + Object.keys(lastServerResponse.qtyLogs[hid] || {}).length, 0)
+        : 0;
+      debugMsg += `Server sent qty logs: ${serverQtyLogCount}\n`;
+      debugMsg += `Server qtyLogs property exists: ${lastServerResponse.qtyLogs !== undefined}\n`;
+    }
+    
     debugMsg += `LocalStorage qty logs: ${localStorage.getItem('ritual_qtylogs') || 'empty'}\n\n`;
     
     if (qtyHabits.length > 0) {
@@ -883,13 +895,17 @@ function showDebugInfo() {
       debugMsg += `No quantity habits found.\n`;
     }
     
-    debugMsg += `\n💡 Tap OK to clear cache and sync again`;
+    debugMsg += `\n💡 Tap OK to clear ALL cache and force fresh sync`;
     
     if (confirm(debugMsg)) {
-      // Clear cache and reload
-      console.log('Clearing cache and resyncing...');
-      localStorage.removeItem('ritual_qtylogs');
-      loadFromSheets();
+      // Clear ALL cache and reload
+      console.log('🧹 Clearing ALL cache and forcing fresh sync...');
+      localStorage.clear();
+      sessionStorage.clear();
+      console.log('✓ Cache cleared, resyncing...');
+      setTimeout(() => {
+        location.reload(true); // Force reload from server
+      }, 100);
     }
   }
   
@@ -920,7 +936,24 @@ async function api(payload, retries = 2) {
         cache: 'no-store' // Force no caching
       });
       const res = await Promise.race([fetchPromise, timeoutPromise]);
+      
+      // Debug: Check response headers and status
+      console.log('API Response status:', res.status);
+      console.log('API Response headers:', Array.from(res.headers.entries()));
+      
       const json = await res.json();
+      
+      // Debug: Log the raw JSON response (especially for getAll)
+      if (payload.action === 'getAll') {
+        console.log('🔍 RAW API RESPONSE for getAll:', JSON.stringify(json).substring(0, 500) + '...');
+        console.log('Response has "ok" property?', 'ok' in json);
+        console.log('Response has "data" property?', 'data' in json);
+        if (json.data) {
+          console.log('data has "qtyLogs" property?', 'qtyLogs' in json.data);
+          console.log('data.qtyLogs value:', json.data.qtyLogs);
+        }
+      }
+      
       if (!json.ok) throw new Error(json.error || 'API error');
       return json.data;
     } catch (e) {
@@ -957,6 +990,10 @@ async function loadFromSheets() {
     console.log('Timestamp:', new Date().toISOString());
     
     const data = await api({ action: 'getAll' });
+    
+    // Store for debugging
+    lastServerResponse = data;
+    
     console.log('=== SYNC DEBUG - Raw response from server ===', data);
     console.log('Response keys:', Object.keys(data));
     console.log('Has qtyLogs?', 'qtyLogs' in data);
@@ -1016,28 +1053,38 @@ async function loadFromSheets() {
     const localQtyLogs = JSON.parse(localStorage.getItem('ritual_qtylogs') || '{}');
     
     console.log('=== QUANTITY LOGS SYNC DEBUG ===');
+    console.log('Raw data.qtyLogs from server:', data.qtyLogs);
+    console.log('Is data.qtyLogs undefined?', data.qtyLogs === undefined);
+    console.log('Is data.qtyLogs null?', data.qtyLogs === null);
+    console.log('Is data.qtyLogs empty object?', data.qtyLogs && Object.keys(data.qtyLogs).length === 0);
     console.log('Server qtyLogs:', serverQtyLogs);
-    console.log('Server qtyLog count:', Object.keys(serverQtyLogs).reduce((sum, hid) => sum + Object.keys(serverQtyLogs[hid]).length, 0));
+    console.log('Server qtyLogs keys:', Object.keys(serverQtyLogs));
+    console.log('Server qtyLog count:', Object.keys(serverQtyLogs).reduce((sum, hid) => sum + Object.keys(serverQtyLogs[hid] || {}).length, 0));
     console.log('Local qtyLogs:', localQtyLogs);
+    console.log('Local qtyLogs keys:', Object.keys(localQtyLogs));
     
-    // Merge: prefer server data, but keep any local entries not on server
-    if (Object.keys(serverQtyLogs).length > 0 || Object.keys(localQtyLogs).length === 0) {
+    // FORCE: Always prefer server data if it exists, ignore local
+    if (data.qtyLogs !== undefined && data.qtyLogs !== null) {
+      console.log('✓ Server has qtyLogs property - using server data');
       qtyLogs = {...serverQtyLogs};
+      
+      // Only merge local data if server doesn't have specific entries
       Object.keys(localQtyLogs).forEach(habitId => {
         if (!qtyLogs[habitId]) qtyLogs[habitId] = {};
         Object.keys(localQtyLogs[habitId]).forEach(dateKey => {
-          // Only add local entry if not already on server
           if (qtyLogs[habitId][dateKey] === undefined) {
+            console.log(`Adding local entry not on server: ${habitId}/${dateKey} = ${localQtyLogs[habitId][dateKey]}`);
             qtyLogs[habitId][dateKey] = localQtyLogs[habitId][dateKey];
           }
         });
       });
     } else {
-      console.warn('Server returned no qtyLogs - keeping local data');
+      console.warn('⚠️ Server did NOT return qtyLogs property - keeping local data');
       qtyLogs = localQtyLogs;
     }
     
-    console.log('Merged qtyLogs:', qtyLogs);
+    console.log('Final merged qtyLogs:', qtyLogs);
+    console.log('Final qtyLog keys:', Object.keys(qtyLogs));
     console.log('Final qtyLog count:', Object.keys(qtyLogs).reduce((sum, hid) => sum + Object.keys(qtyLogs[hid] || {}).length, 0));
     
     // Debug: Show what's in qtyLogs for each habit
