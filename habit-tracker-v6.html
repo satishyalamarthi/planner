@@ -2286,15 +2286,18 @@ function exportYearlyPDF(){
   doc.setTextColor(60, 60, 60);
   
   const hStats = habs.map(h=>{
-    const done = countRange(h.id, yS, pastEnd);
+    let done = countRange(h.id, yS, pastEnd);
+    done = isNaN(done) || !isFinite(done) ? 0 : Math.round(done);
     const days = Math.round((pastEnd - yS)/86400000) + 1;
     let tgt = h.freq==='daily' ? days : (h.freq==='custom' ? (h.cpPeriod==='week' ? Math.round(days/7)*Number(h.cpN) : 12*Number(h.cpN)) : done);
+    tgt = isNaN(tgt) || !isFinite(tgt) ? 0 : Math.round(tgt);
     return {h, done, target: tgt};
   });
   
   const totD = hStats.reduce((s,x)=>s+x.done, 0);
   const totT = hStats.reduce((s,x)=>s+x.target, 0);
-  const yrPct = totT ? Math.round(totD/totT*100) : 0;
+  let yrPct = totT ? Math.round(totD/totT*100) : 0;
+  yrPct = isNaN(yrPct) || !isFinite(yrPct) ? 0 : Math.round(yrPct);
   
   doc.text('Total Habits: ' + String(habs.length), margin + 5, yPos + 8);
   doc.text('Total Completions: ' + String(totD), margin + 5, yPos + 15);
@@ -2339,15 +2342,19 @@ function exportYearlyPDF(){
       checkPageBreak(lineHeight);
       
       // Calculate monthly and yearly counts
-      const monthlyDone = countRange(h.id, currMonthStart, currMonthEnd);
+      let monthlyDone = countRange(h.id, currMonthStart, currMonthEnd);
+      monthlyDone = isNaN(monthlyDone) || !isFinite(monthlyDone) ? 0 : Math.round(monthlyDone);
       const monthlyDays = Math.round((currMonthEnd - currMonthStart)/86400000) + 1;
-      const monthlyTarget = h.freq==='daily' ? monthlyDays : (h.freq==='custom' ? 
+      let monthlyTarget = h.freq==='daily' ? monthlyDays : (h.freq==='custom' ? 
         (h.cpPeriod==='week' ? Math.round(monthlyDays/7)*Number(h.cpN) : Number(h.cpN)) : monthlyDone);
+      monthlyTarget = isNaN(monthlyTarget) || !isFinite(monthlyTarget) ? 0 : Math.round(monthlyTarget);
       
-      const yearlyDone = countRange(h.id, yS, pastEnd);
+      let yearlyDone = countRange(h.id, yS, pastEnd);
+      yearlyDone = isNaN(yearlyDone) || !isFinite(yearlyDone) ? 0 : Math.round(yearlyDone);
       const yearlyDays = Math.round((pastEnd - yS)/86400000) + 1;
-      const yearlyTarget = h.freq==='daily' ? yearlyDays : (h.freq==='custom' ? 
+      let yearlyTarget = h.freq==='daily' ? yearlyDays : (h.freq==='custom' ? 
         (h.cpPeriod==='week' ? Math.round(yearlyDays/7)*Number(h.cpN) : 12*Number(h.cpN)) : yearlyDone);
+      yearlyTarget = isNaN(yearlyTarget) || !isFinite(yearlyTarget) ? 0 : Math.round(yearlyTarget);
       
       // Alternate row colors
       if(idx % 2 === 0){
@@ -2410,7 +2417,8 @@ function exportYearlyPDF(){
           const d = new Date(k);
           return d >= currMonthStart && d <= currMonthEnd;
         })
-        .map(k => allLogs[k]);
+        .map(k => Number(allLogs[k]))
+        .filter(v => !isNaN(v) && isFinite(v));
       
       const mAvg = monthlyVals.length > 0 ? (monthlyVals.reduce((s,v)=>s+v,0)/monthlyVals.length).toFixed(1) : '-';
       const mMin = monthlyVals.length > 0 ? Math.min(...monthlyVals).toFixed(1) : '-';
@@ -2422,7 +2430,8 @@ function exportYearlyPDF(){
           const d = new Date(k);
           return d >= yS && d <= pastEnd;
         })
-        .map(k => allLogs[k]);
+        .map(k => Number(allLogs[k]))
+        .filter(v => !isNaN(v) && isFinite(v));
       
       const yAvg = yearlyVals.length > 0 ? (yearlyVals.reduce((s,v)=>s+v,0)/yearlyVals.length).toFixed(1) : '-';
       const yMin = yearlyVals.length > 0 ? Math.min(...yearlyVals).toFixed(1) : '-';
@@ -2473,16 +2482,24 @@ function exportYearlyPDF(){
     
       habitsWithData.forEach((h, idx) => {
         const logs = qtyLogs[h.id] || {};
-        const allLoggedValues = Object.values(logs).filter(v => v !== null && v !== undefined);
+        const allLoggedValues = Object.values(logs)
+          .filter(v => v !== null && v !== undefined)
+          .map(v => Number(v))
+          .filter(v => !isNaN(v) && isFinite(v));
         
         // Check if we need a new page
         checkPageBreak(80);
       
       // Calculate stats
-      const total = allLoggedValues.reduce((s, v) => s + v, 0);
-      const avg = Math.round(total / allLoggedValues.length * 10) / 10;
-      const maxV = Math.round(Math.max(...allLoggedValues) * 10) / 10;
-      const minV = Math.round(Math.min(...allLoggedValues) * 10) / 10;
+      const total = allLoggedValues.reduce((s, v) => s + Number(v), 0);
+      let avg = allLoggedValues.length > 0 ? Math.round(total / allLoggedValues.length * 10) / 10 : 0;
+      let maxV = allLoggedValues.length > 0 ? Math.round(Math.max(...allLoggedValues) * 10) / 10 : 0;
+      let minV = allLoggedValues.length > 0 ? Math.round(Math.min(...allLoggedValues) * 10) / 10 : 0;
+      
+      // Ensure all values are valid numbers
+      avg = isNaN(avg) || !isFinite(avg) ? 0 : avg;
+      maxV = isNaN(maxV) || !isFinite(maxV) ? 0 : maxV;
+      minV = isNaN(minV) || !isFinite(minV) ? 0 : minV;
       
       // Get last 30 days of data
       const now = new Date(today);
@@ -2493,14 +2510,23 @@ function exportYearlyPDF(){
         const dateStr = date.getFullYear() + '-' + 
                        String(date.getMonth() + 1).padStart(2, '0') + '-' + 
                        String(date.getDate()).padStart(2, '0');
-        const value = logs[dateStr] !== undefined ? logs[dateStr] : null;
+        let value = logs[dateStr] !== undefined ? Number(logs[dateStr]) : null;
+        if(value !== null && (isNaN(value) || !isFinite(value))) {
+          value = null;
+        }
         chartData.push({ date: date.getDate(), value });
       }
       
       // Calculate trend
       const nonNull = chartData.filter(d => d.value !== null).map(d => d.value);
-      const trend = nonNull.length >= 2 ? nonNull[nonNull.length - 1] - nonNull[0] : 0;
-      const trendStr = trend > 0 ? ('+' + (Math.round(trend * 10) / 10).toString()) : (Math.round(trend * 10) / 10).toString();
+      let trend = 0;
+      if(nonNull.length >= 2) {
+        trend = nonNull[nonNull.length - 1] - nonNull[0];
+        trend = isNaN(trend) ? 0 : trend;
+        trend = !isFinite(trend) ? 0 : trend;
+      }
+      const trendNum = Math.round(trend * 10) / 10;
+      const trendStr = trendNum > 0 ? ('+' + String(trendNum)) : String(trendNum);
       
       // Chart title
       doc.setFontSize(12);
@@ -2626,14 +2652,17 @@ function exportYearlyPDF(){
     if(isFut) return; // Skip future months
     
     const ms = habs.map(h=>{
-      const done = countRange(h.id, mS, mPE);
+      let done = countRange(h.id, mS, mPE);
+      done = isNaN(done) || !isFinite(done) ? 0 : Math.round(done);
       let tgt = h.freq==='daily' ? pD : (h.freq==='custom' ? (h.cpPeriod==='week' ? Math.min(Math.round(pD/7)*Number(h.cpN), pD) : Number(h.cpN)) : done);
+      tgt = isNaN(tgt) || !isFinite(tgt) ? 0 : Math.round(tgt);
       return {done, target: tgt};
     });
     
     const mTD = ms.reduce((s,x)=>s+x.done, 0);
     const mTT = ms.reduce((s,x)=>s+x.target, 0);
-    const mP = mTT ? Math.round(mTD/mTT*100) : 0;
+    let mP = mTT ? Math.round(mTD/mTT*100) : 0;
+    mP = isNaN(mP) || !isFinite(mP) ? 0 : Math.round(mP);
     
     // Month header
     doc.setFontSize(10);
