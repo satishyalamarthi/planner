@@ -1689,9 +1689,13 @@ async function saveQtyLog(){
   const h=habits.find(x=>x.id===qtyModalHid);
   if(!h){toast('Habit not found','⚠',false);return;}
   
+  // Save habitId to local variable before modal closes (important for async sync)
+  const habitId = qtyModalHid;
+  const qtyValue = parseFloat(v);
+  
   // Save locally
-  if(!qtyLogs[qtyModalHid])qtyLogs[qtyModalHid]={};
-  qtyLogs[qtyModalHid][dateKey]=parseFloat(v);
+  if(!qtyLogs[habitId])qtyLogs[habitId]={};
+  qtyLogs[habitId][dateKey]=qtyValue;
   saveQtyLogs();
   closeQtyModal();
   updateAll();
@@ -1700,8 +1704,8 @@ async function saveQtyLog(){
   // Sync to Google Sheets
   if (SCRIPT_URL) {
     try {
-      console.log('Syncing qty log to Sheets:', {habitId:qtyModalHid, dateKey:dateKey, assignee:h.assignee, qtyValue:parseFloat(v)});
-      await api({action:'saveQtyLog',habitId:qtyModalHid,dateKey:dateKey,assignee:h.assignee,qtyValue:parseFloat(v)});
+      console.log('Syncing qty log to Sheets:', {habitId:habitId, dateKey:dateKey, assignee:h.assignee, qtyValue:qtyValue});
+      await api({action:'saveQtyLog',habitId:habitId,dateKey:dateKey,assignee:h.assignee,qtyValue:qtyValue});
       console.log('✓ Quantity log synced to Google Sheets');
     } catch(e) {
       console.error('✗ Failed to sync quantity log to Google Sheets:',e);
