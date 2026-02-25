@@ -42,16 +42,36 @@ Your weekly planner now automatically syncs with your Notion page "2026 Goals | 
 1. Open the Notion page
 2. Copy the URL - the ID is between the last `/` and the `?` (if any)
 
-### Step 4: Configure in Planner
+### Step 4: Set Up CORS Proxy (Required)
+
+Notion API requires custom headers that most public CORS proxies don't support. **You need to deploy your own proxy** (free and takes 5 minutes):
+
+#### Option A: Cloudflare Worker (Recommended - FREE)
+1. Go to [Cloudflare Workers](https://workers.cloudflare.com/)
+2. Sign up (free tier: 100k requests/day)
+3. Click **"Create a Worker"**
+4. Delete the default code
+5. Copy all code from `notion-proxy-worker.js` in this repo
+6. Paste it into the worker editor
+7. Click **"Save and Deploy"**
+8. Copy your worker URL (e.g., `https://my-notion-proxy.username.workers.dev`)
+9. Use this URL as your **CORS Proxy** in Step 5
+
+#### Option B: Try Direct Connection (May not work)
+- Some browser extensions (like CORS unblock) allow direct API calls
+- Set CORS Proxy to: `direct`
+- This rarely works due to browser security
+
+### Step 5: Configure in Planner
 
 1. Open `keerthi-planner.html` in your browser
 2. Click the **"🎯 Notion"** button in the header
 3. Paste your **Notion API Key** (the secret token from Step 1)
 4. Paste your **Page/Database ID** (from Step 3)
-5. **CORS Proxy URL**: Leave as default (`https://corsproxy.io/?`) or use your own
-   - 💡 **Why needed?** Browsers block direct API calls to Notion for security (CORS policy)
-   - The proxy acts as a middleman to bypass browser restrictions
-   - Alternative proxies: `https://api.allorigins.win/raw?url=` or host your own
+5. **CORS Proxy URL**: Paste your Cloudflare Worker URL from Step 4
+   - 💡 **Why needed?** Browsers block direct API calls to Notion (CORS policy)
+   - The proxy forwards your requests with proper headers
+   - ⚠️ **Public proxies like corsproxy.io DON'T work** with Notion's custom headers
 6. Click **"💾 Save & Load"**
 
 ## 📊 Required Notion Database Structure
@@ -130,17 +150,19 @@ Use these exact values in your Priority column (case-insensitive):
 - You haven't set up the API key and Page ID yet
 - Click **🎯 Notion** button to configure
 
-### "⚠️ Failed to load: Failed to fetch"
+### "⚠️ Failed to load: Failed to fetch" or CORS errors
 **This is a CORS (Cross-Origin Resource Sharing) error:**
 - Browsers block direct calls to Notion API for security
-- **Solution**: Use a CORS proxy (already configured by default)
-- Default proxy: `https://corsproxy.io/?`
-- **Alternative proxies** you can try:
-  - `https://api.allorigins.win/raw?url=`
-  - `https://cors-anywhere.herokuapp.com/` (may require activation)
-  - Host your own CORS proxy server
-- Change the proxy in Notion settings if the default doesn't work
+- Notion requires custom headers that most public proxies don't support
+- **Solution**: Deploy your own Cloudflare Worker (see Step 4 above)
+  - Takes 5 minutes, completely free
+  - Reliable and fast
+  - Your worker URL should end with `.workers.dev`
 - Check browser console (F12) for detailed error messages
+- Common issues:
+  - Public proxies like corsproxy.io or allorigins.win **don't work** with Notion
+  - They block the `Notion-Version` and `Authorization` headers
+  - You MUST use a custom worker or direct connection
 
 ### "⚠️ Failed to load: 401 Unauthorized"
 - Your API key is incorrect
@@ -158,14 +180,6 @@ Use these exact values in your Priority column (case-insensitive):
 4. Verify the integration has access to the page
 5. Open browser console (F12) to see detailed error messages
 
-### CORS Errors
-- **Already fixed!** The integration now uses a CORS proxy by default
-- If you still see CORS errors, try these alternative proxies:
-  1. `https://api.allorigins.win/raw?url=`
-  2. `https://thingproxy.freeboard.io/fetch/`
-  3. Host your own proxy server for better reliability
-- Change the proxy URL in 🎯 Notion settings
-
 ## 💡 Tips & Best Practices
 
 1. **Priority Consistently**: Use the exact priority values (`I_U`, `I_NU`, `NI_U`) for proper categorization
@@ -178,15 +192,13 @@ Use these exact values in your Priority column (case-insensitive):
 ## 🔐 Privacy & Security
 
 - Your Notion API key is stored **locally** in your browser's localStorage
-- API calls go through a CORS proxy to work around browser restrictions
-- The default proxy (corsproxy.io) is a public service - use at your own risk
-- For sensitive data, consider hosting your own CORS proxy
-- No data is sent to any server except:
-  1. The CORS proxy (to forward requests)
-  2. Notion API (to fetch your tasks)
+- API calls go through YOUR Cloudflare Worker (that you control)
+- No data is sent to any third-party server
+- All data flows: Your Browser → Your Worker → Notion API
+- Worker code is open source (in `notion-proxy-worker.js`)
 - The integration only **reads** from your Notion database
 - It does **not write back** to Notion (one-way sync)
-- API key never leaves your device (stored locally)
+- API key never leaves your device (stored locally, sent only to Notion via your worker)
 
 ## 📱 Mobile Usage
 
