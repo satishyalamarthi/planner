@@ -859,7 +859,8 @@ function showDebugInfo() {
     let debugMsg = `📊 DEBUG INFO\n\n`;
     debugMsg += `Total habits: ${habits.length}\n`;
     debugMsg += `Qty habits: ${qtyHabits.length}\n`;
-    debugMsg += `Total qty logs: ${qtyLogCount}\n\n`;
+    debugMsg += `Total qty logs: ${qtyLogCount}\n`;
+    debugMsg += `LocalStorage qty logs: ${localStorage.getItem('ritual_qtylogs') || 'empty'}\n\n`;
     
     if (qtyHabits.length > 0) {
       debugMsg += `Qty Habits:\n`;
@@ -882,7 +883,14 @@ function showDebugInfo() {
       debugMsg += `No quantity habits found.\n`;
     }
     
-    alert(debugMsg);
+    debugMsg += `\n💡 Tap OK to clear cache and sync again`;
+    
+    if (confirm(debugMsg)) {
+      // Clear cache and reload
+      console.log('Clearing cache and resyncing...');
+      localStorage.removeItem('ritual_qtylogs');
+      loadFromSheets();
+    }
   }
   
   debugClickTimer = setTimeout(() => {
@@ -901,14 +909,15 @@ async function api(payload, retries = 2) {
       );
       
       // Add cache-busting parameter to URL to prevent caching
-      const urlWithCache = SCRIPT_URL + (SCRIPT_URL.includes('?') ? '&' : '?') + '_=' + Date.now();
+      const urlWithCache = SCRIPT_URL + (SCRIPT_URL.includes('?') ? '&' : '?') + '_t=' + Date.now() + '&_r=' + Math.random();
       
       const fetchPromise = fetch(urlWithCache, {
         method: 'POST',
         body: JSON.stringify(payload),
         headers: { 
           'Content-Type': 'text/plain' // text/plain avoids CORS preflight
-        }
+        },
+        cache: 'no-store' // Force no caching
       });
       const res = await Promise.race([fetchPromise, timeoutPromise]);
       const json = await res.json();
@@ -942,8 +951,18 @@ async function loadFromSheets() {
     // Save local-only habits (not yet synced) before loading from sheets
     const localOnlyHabits = habits.filter(h => h.synced === false);
     
+    console.log('=== MOBILE SYNC DEBUG ===');
+    console.log('Device:', navigator.userAgent);
+    console.log('Requesting data from:', SCRIPT_URL);
+    console.log('Timestamp:', new Date().toISOString());
+    
     const data = await api({ action: 'getAll' });
     console.log('=== SYNC DEBUG - Raw response from server ===', data);
+    console.log('Response keys:', Object.keys(data));
+    console.log('Has qtyLogs?', 'qtyLogs' in data);
+    console.log('qtyLogs type:', typeof data.qtyLogs);
+    console.log('qtyLogs value:', data.qtyLogs);
+    
     let serverHabits = data.habits || [];
     console.log('=== Server habits count:', serverHabits.length);
     // Ensure all habits have a type property - detect qty habits by their properties
@@ -1050,9 +1069,16 @@ async function loadFromSheets() {
         const todayVal = qtyLogs[h.id][todayKey];
         return `${h.emoji}${h.name}: ${todayVal !== undefined ? todayVal + (h.qtyUnit || '') + ' today' : Object.keys(qtyLogs[h.id]).length + ' entries'}`;
       }).join(' | ');
-      toast(`Synced · ${qtyLogCount} qty log${qtyLogCount > 1 ? 's' : ''}: ${qtyDetails}`, '✓', false);
+      // Show both toast and longer alert for mobile debugging
+      toast(`📥 ${qtyLogCount} qty: ${qtyDetails}`, '✓', false);
     } else {
-      toast('Synced with Google Sheets', '✓', false);
+      // If no qty logs but we expected them, show warning
+      const qtyHabitsTotal = habits.filter(h => h.type === 'qty').length;
+      if (qtyHabitsTotal > 0) {
+        toast(`⚠️ Synced but 0 qty logs (${qtyHabitsTotal} qty habits exist)`, '⚠', false);
+      } else {
+        toast('Synced with Google Sheets', '✓', false);
+      }
     }
     
     // Try to sync any local-only habits to the server
