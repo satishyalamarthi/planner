@@ -972,6 +972,13 @@ async function loadFromSheets() {
     console.log('Merged qtyLogs:', qtyLogs);
     console.log('Final qtyLog count:', Object.keys(qtyLogs).reduce((sum, hid) => sum + Object.keys(qtyLogs[hid] || {}).length, 0));
     
+    // Debug: Show what's in qtyLogs for each habit
+    habits.forEach(h => {
+      if (h.type === 'qty') {
+        console.log(`Qty habit "${h.name}" (${h.id}): qtyLogs =`, qtyLogs[h.id]);
+      }
+    });
+    
     // Save merged data to localStorage for offline use
     saveToLocalStorage();
     saveQtyLogs();
@@ -1222,6 +1229,10 @@ function renderToday(){
       const qtyDone=isQty&&todayQty!==null;
       const qtyGoalMet=isQty&&h.qtyGoal&&todayQty>=Number(h.qtyGoal);
       const checkDone=!isQty&&dn;
+      // Debug quantity habits rendering
+      if(isQty && h.id === 'h_1772046037716') {
+        console.log(`Rendering "${h.name}": todayKey=${todayKey}, qtyLogs[h.id]=`, qtyLogs[h.id], `todayQty=${todayQty}, qtyDone=${qtyDone}`);
+      }
       return`<div class="habit-card ${(checkDone||qtyGoalMet)?'completed':''}">
         ${isQty
           ? `<button class="hcheck ${qtyDone?'done':''}" onclick="openQtyModal('${h.id}')" title="Log ${h.qtyUnit||'amount'}">${qtyDone?todayQty+(h.qtyUnit||''):'+'}</button>`

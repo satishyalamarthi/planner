@@ -182,6 +182,20 @@ function getAll() {
   });
 
   Logger.log('Loaded ' + qtyLogCount + ' quantity logs' + (skippedRowCount > 0 ? ` (skipped ${skippedRowCount} invalid rows)` : ''));
+  
+  // Debug: Show what we're returning
+  Logger.log('Returning data:');
+  Logger.log('  - Habits: ' + habits.length);
+  Logger.log('  - Completion habit IDs: ' + Object.keys(completions).length);
+  Logger.log('  - QtyLog habit IDs: ' + Object.keys(qtyLogs).length);
+  Object.keys(qtyLogs).forEach(habitId => {
+    const habit = habits.find(h => h.id === habitId);
+    const habitName = habit ? habit.name : 'Unknown';
+    Logger.log('    - ' + habitName + ' (' + habitId + '): ' + Object.keys(qtyLogs[habitId]).length + ' entries');
+    Object.keys(qtyLogs[habitId]).forEach(dateKey => {
+      Logger.log('      - ' + dateKey + ': ' + qtyLogs[habitId][dateKey]);
+    });
+  });
 
   return { habits, completions, qtyLogs };
 }
