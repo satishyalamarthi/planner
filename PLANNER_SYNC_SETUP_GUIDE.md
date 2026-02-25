@@ -163,6 +163,21 @@ Your planner now supports cloud sync with Google Sheets! This allows you to:
 4. Google Sheets sync happens after you finish typing
 5. When you close/refresh the page, any pending sync completes automatically
 
+### Problem: Deleted images reappear or other data gets deleted when deleting images
+**This was a bug that has been FIXED!**
+**Cause**: Image deletions used debounced sync, so if you refreshed the page before the 1.5s sync completed, the deletion was lost and old data from Google Sheets restored the image. Also caused race conditions where other edits were overwritten.
+**Solution:**
+1. Refresh your browser to get the latest code
+2. All deletion operations now force immediate sync (no debounce)
+3. This includes:
+   - Image deletions (photos from all sections)
+   - Sticker deletions
+   - Important dates/birthdays deletions
+   - Sticky note deletions
+   - Vision board image/word deletions
+   - Week plan item deletions
+4. Deletions sync instantly to prevent data loss
+
 ### Problem: Authorization errors
 **Solutions:**
 1. Re-authorize the Apps Script:

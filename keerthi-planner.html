@@ -1321,6 +1321,14 @@ function gY(k){return(db[mky()]||{})[k]}
 function sY(k,v){if(!db[mky()])db[mky()]={};db[mky()][k]=v;persist()}
 function gYR(k){return(db[`yrR-${cY}`]||{})[k]}
 function sYR(k,v){if(!db[`yrR-${cY}`])db[`yrR-${cY}`]={};db[`yrR-${cY}`][k]=v;persist()}
+
+// Save functions that force immediate sync (for deletions to prevent data loss)
+function sMSync(k,v){if(!db[mk()])db[mk()]={};db[mk()][k]=v;localStorage.setItem(SK,JSON.stringify(db));forceSyncToSheets()}
+function sDSync(d,k,v){if(!db[mkd(d)])db[mkd(d)]={};db[mkd(d)][k]=v;localStorage.setItem(SK,JSON.stringify(db));forceSyncToSheets()}
+function sWSync(k,v){if(!db[mkw()])db[mkw()]={};db[mkw()][k]=v;localStorage.setItem(SK,JSON.stringify(db));forceSyncToSheets()}
+function sYSync(k,v){if(!db[mky()])db[mky()]={};db[mky()][k]=v;localStorage.setItem(SK,JSON.stringify(db));forceSyncToSheets()}
+function sYRSync(k,v){if(!db[`yrR-${cY}`])db[`yrR-${cY}`]={};db[`yrR-${cY}`][k]=v;localStorage.setItem(SK,JSON.stringify(db));forceSyncToSheets()}
+
 let _tt;
 function toast(m){const t=document.getElementById('toast');t.textContent=m||'✓';t.classList.add('on');clearTimeout(_tt);_tt=setTimeout(()=>t.classList.remove('on'),1800)}
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
@@ -1457,7 +1465,7 @@ function rPlacedStickers(){
     const el=document.createElement('div');el.className='placed-sticker';el.style.background=s.color;
     el.innerHTML=`<span>${s.emoji}</span>${s.text?`<span>${esc(s.text)}</span>`:''}`;
     const del=document.createElement('button');del.className='sdel';del.textContent='✕';
-    del.onclick=()=>{const arr=gD(aDay,'stickers')||[];arr.splice(i,1);sD(aDay,'stickers',arr);rPlacedStickers()};
+    del.onclick=()=>{const arr=gD(aDay,'stickers')||[];arr.splice(i,1);sDSync(aDay,'stickers',arr);rPlacedStickers()};
     el.appendChild(del);row.appendChild(el);
   });
 }
@@ -1516,23 +1524,23 @@ function deleteImg(gk,idx,day){
   let arr=null;
   if(gk==='wd'&&day!==undefined){
     // Week day images - day parameter passed from mkThumb
-    arr=gD(day,'imgs')||[];arr.splice(idx,1);sD(day,'imgs',arr);
+    arr=gD(day,'imgs')||[];arr.splice(idx,1);sDSync(day,'imgs',arr);
     rWeek(); // Refresh entire week view
   }else if(gk.startsWith('yr-')){
     // Year goals images
-    arr=gY(gk)||[];arr.splice(idx,1);sY(gk,arr);
+    arr=gY(gk)||[];arr.splice(idx,1);sYSync(gk,arr);
     lStripY(gk,gk);
   }else if(gk.startsWith('yrR-')){
     // Year reflection images  
-    arr=gYR(gk)||[];arr.splice(idx,1);sYR(gk,arr);
+    arr=gYR(gk)||[];arr.splice(idx,1);sYRSync(gk,arr);
     lStripYR(gk,gk);
   }else if(gk==='wk-imgs'){
     // Weekly level images
-    arr=gW(gk)||[];arr.splice(idx,1);sW(gk,arr);
+    arr=gW(gk)||[];arr.splice(idx,1);sWSync(gk,arr);
     lStrip(gk,gk,gW);
   }else{
     // Monthly data (default)
-    arr=gM(gk)||[];arr.splice(idx,1);sM(gk,arr);
+    arr=gM(gk)||[];arr.splice(idx,1);sMSync(gk,arr);
     lStrip(gk,gk);
   }
   toast('✓ Image deleted');
@@ -1589,7 +1597,7 @@ function rDates(){
     const b=document.createElement('div');b.className='evb';b.textContent=it.day?MNS[cM].slice(0,3)+' '+it.day:'—';
     const di=document.createElement('input');di.type='number';di.value=it.day||'';di.placeholder='Day';di.min=1;di.max=31;di.onchange=e=>{const a=gM('dates')||[];a[i].day=e.target.value;sM('dates',a);rDates()};
     const ti=document.createElement('input');ti.type='text';ti.value=esc(it.text||'');ti.placeholder="What's happening?";ti.style.flex='1';ti.onchange=e=>{const a=gM('dates')||[];a[i].text=e.target.value;sM('dates',a)};
-    const del=document.createElement('button');del.className='evdel';del.textContent='✕';del.onclick=()=>{const a=gM('dates')||[];a.splice(i,1);sM('dates',a);rDates()};
+    const del=document.createElement('button');del.className='evdel';del.textContent='✕';del.onclick=()=>{const a=gM('dates')||[];a.splice(i,1);sMSync('dates',a);rDates()};
     d.appendChild(b);d.appendChild(di);d.appendChild(ti);d.appendChild(del);c.appendChild(d);
   });
   lStrip('dates-imgs','dates-imgs');
@@ -1599,7 +1607,7 @@ function rDates(){
     const d=document.createElement('div');d.className='evi';d.innerHTML='<div style="font-size:1.1rem">🎂</div>';
     const di=document.createElement('input');di.type='number';di.value=it.day||'';di.placeholder='Day';di.min=1;di.max=31;di.onchange=e=>{const a=gM('bdays')||[];a[i].day=e.target.value;sM('bdays',a)};
     const ni=document.createElement('input');ni.type='text';ni.value=esc(it.name||'');ni.placeholder='Name';ni.style.flex='1';ni.onchange=e=>{const a=gM('bdays')||[];a[i].name=e.target.value;sM('bdays',a)};
-    const del=document.createElement('button');del.className='evdel';del.textContent='✕';del.onclick=()=>{const a=gM('bdays')||[];a.splice(i,1);sM('bdays',a);rDates()};
+    const del=document.createElement('button');del.className='evdel';del.textContent='✕';del.onclick=()=>{const a=gM('bdays')||[];a.splice(i,1);sMSync('bdays',a);rDates()};
     d.appendChild(di);d.appendChild(ni);d.appendChild(del);bc.appendChild(d);
   });
 }
@@ -1612,7 +1620,7 @@ function rNotes(){
   (gM('notes')||[]).forEach((t,i)=>{
     const d=document.createElement('div');d.className='stic';d.style.background=NC[i%NC.length];d.style.setProperty('--rot',NR[i%NR.length]);
     const ta=document.createElement('textarea');ta.placeholder='Write something…';ta.value=t;ta.oninput=e=>{const a=gM('notes')||[];a[i]=e.target.value;sM('notes',a)};
-    const del=document.createElement('button');del.className='sdel';del.textContent='✕';del.onclick=()=>{const a=gM('notes')||[];a.splice(i,1);sM('notes',a);rNotes()};
+    const del=document.createElement('button');del.className='sdel';del.textContent='✕';del.onclick=()=>{const a=gM('notes')||[];a.splice(i,1);sMSync('notes',a);rNotes()};
     d.appendChild(ta);d.appendChild(del);g.appendChild(d);
   });
   lStrip('notes-imgs','notes-imgs');
@@ -1800,7 +1808,7 @@ function rWPlanItems(section='important'){
       delBtn.onclick=()=>{
         const a=gW(`plan-items-${sec}`)||[];
         a.splice(i,1);
-        sW(`plan-items-${sec}`,a);
+        sWSync(`plan-items-${sec}`,a);
         rWPlanItems(sec);
       };
       d.appendChild(cb);d.appendChild(inp);d.appendChild(delBtn);
@@ -1879,14 +1887,14 @@ function rVBoard(){
     const img=document.createElement('img');img.className='vb-full-img';img.src=s;
     img.onclick=()=>openIV(gY('vb-full-imgs')||[],i);
     const delBtn=document.createElement('div');delBtn.className='vb-img-del';delBtn.innerHTML='✕';delBtn.title='Delete image';
-    delBtn.onclick=e=>{e.stopPropagation();if(confirm('Delete this image?')){const arr=gY('vb-full-imgs')||[];arr.splice(i,1);sY('vb-full-imgs',arr);rVBoard();}};
+    delBtn.onclick=e=>{e.stopPropagation();if(confirm('Delete this image?')){const arr=gY('vb-full-imgs')||[];arr.splice(i,1);sYSync('vb-full-imgs',arr);rVBoard();}};
     wrap.appendChild(img);wrap.appendChild(delBtn);fi.appendChild(wrap);
   });
   // Power words
   const ww=document.getElementById('vb-words');ww.innerHTML='';
   (gY('vb-words')||[]).forEach((w,i)=>{
     const b=document.createElement('button');b.className='vb-word';b.textContent=w;b.style.background=WC[i%WC.length];
-    b.onclick=()=>{if(confirm('Remove "'+w+'"?')){const a=gY('vb-words')||[];a.splice(i,1);sY('vb-words',a);rVBoard()}};ww.appendChild(b);
+    b.onclick=()=>{if(confirm('Remove "'+w+'"?')){const a=gY('vb-words')||[];a.splice(i,1);sYSync('vb-words',a);rVBoard()}};ww.appendChild(b);
   });
 }
 function addVBWord(){const inp=document.getElementById('vb-word-inp');const w=inp.value.trim();if(!w)return;const a=gY('vb-words')||[];a.push(w);sY('vb-words',a);inp.value='';rVBoard()}
