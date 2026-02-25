@@ -947,6 +947,11 @@ async function loadFromSheets() {
     const serverQtyLogs = data.qtyLogs || {};
     const localQtyLogs = JSON.parse(localStorage.getItem('ritual_qtylogs') || '{}');
     
+    console.log('=== QUANTITY LOGS SYNC DEBUG ===');
+    console.log('Server qtyLogs:', serverQtyLogs);
+    console.log('Server qtyLog count:', Object.keys(serverQtyLogs).reduce((sum, hid) => sum + Object.keys(serverQtyLogs[hid]).length, 0));
+    console.log('Local qtyLogs:', localQtyLogs);
+    
     // Merge: prefer server data, but keep any local entries not on server
     if (Object.keys(serverQtyLogs).length > 0 || Object.keys(localQtyLogs).length === 0) {
       qtyLogs = {...serverQtyLogs};
@@ -963,6 +968,9 @@ async function loadFromSheets() {
       console.warn('Server returned no qtyLogs - keeping local data');
       qtyLogs = localQtyLogs;
     }
+    
+    console.log('Merged qtyLogs:', qtyLogs);
+    console.log('Final qtyLog count:', Object.keys(qtyLogs).reduce((sum, hid) => sum + Object.keys(qtyLogs[hid] || {}).length, 0));
     
     // Save merged data to localStorage for offline use
     saveToLocalStorage();

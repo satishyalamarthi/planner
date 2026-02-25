@@ -137,6 +137,9 @@ function getAll() {
   // Gather completions and quantity logs from all assignee sheets
   const completions = {};
   const qtyLogs = {};
+  let qtyLogCount = 0;
+  let skippedRowCount = 0;
+  
   Object.values(SHEET_NAMES).forEach(sheetName => {
     if (sheetName === SHEET_NAMES.habits) return;
     const sheet = getOrCreateSheet(sheetName);
@@ -149,9 +152,18 @@ function getAll() {
       Logger.log('Added qtyValue column to sheet: ' + sheetName);
     }
     
-    data.slice(1).forEach(row => {
+    data.slice(1).forEach((row, index) => {
       const [habitId, date, done, qtyValue] = row;
-      if (!habitId || !date) return;
+      
+      // Skip rows with missing required fields
+      if (!habitId || !date) {
+        skippedRowCount++;
+        if (!habitId && qtyValue) {
+          Logger.log(`⚠️ Skipping row ${index + 2} in ${sheetName}: Missing habitId but has qtyValue=${qtyValue}`);
+        }
+        return;
+      }
+      
       const dateStr = formatDate(date);
       
       // Store completions (for check-type habits)
@@ -164,9 +176,12 @@ function getAll() {
       if (qtyValue !== undefined && qtyValue !== null && qtyValue !== '') {
         if (!qtyLogs[habitId]) qtyLogs[habitId] = {};
         qtyLogs[habitId][dateStr] = Number(qtyValue);
+        qtyLogCount++;
       }
     });
   });
+
+  Logger.log('Loaded ' + qtyLogCount + ' quantity logs' + (skippedRowCount > 0 ? ` (skipped ${skippedRowCount} invalid rows)` : ''));
 
   return { habits, completions, qtyLogs };
 }
@@ -280,6 +295,17 @@ function toggleCompletion(body) {
 // body: { habitId, dateKey, assignee, qtyValue: number }
 function saveQtyLog(body) {
   const { habitId, dateKey, assignee, qtyValue } = body;
+  
+  // Validate required fields
+  if (!habitId) {
+    Logger.log('ERROR: saveQtyLog called without habitId');
+    throw new Error('habitId is required for saveQtyLog');
+  }
+  if (!dateKey) {
+    Logger.log('ERROR: saveQtyLog called without dateKey');
+    throw new Error('dateKey is required for saveQtyLog');
+  }
+  
   const sheetName = SHEET_NAMES[assignee] || SHEET_NAMES.satish;
   const sheet     = getOrCreateSheet(sheetName);
   const data      = sheet.getDataRange().getValues();
@@ -296,7 +322,7 @@ function saveQtyLog(body) {
 
   if (qtyValue !== undefined && qtyValue !== null && qtyValue !== '') {
     if (foundRow > 0) {
-      // Update existing row - set qtyValue in column 4
+      // Update existing row - set qtyValue in column 4t
       sheet.getRange(foundRow, 4).setValue(Number(qtyValue));
       Logger.log('Updated existing row ' + foundRow + ' with qtyValue: ' + qtyValue);
     } else {
@@ -419,4 +445,77 @@ function testSaveHabit() {
   } else {
     Logger.log('✗ ERROR: Could not retrieve test habit!');
   }
+}
+
+// ── DEBUG HELPER: Show all habit IDs ────────────────────────────
+// Run this to see all your habit IDs - useful when manually editing sheets
+function showAllHabitIds() {
+  const habitsSheet = getOrCreateSheet(SHEET_NAMES.habits);
+  const data = habitsSheet.getDataRange().getValues();
+  
+  Logger.log('=== ALL HABIT IDs (copy these when manually adding data) ===');
+  
+  if (data.length === 1) {
+    Logger.log('No habits found in the Habits sheet.');
+    return;
+  }
+  
+  for (let i = 1; i < data.length; i++) {
+    const id = data[i][0];
+    const name = data[i][1];
+    const emoji = data[i][2];
+    const assignee = data[i][5];
+    const type = data[i][9] || 'check';
+    
+    if (id) {
+      Logger.log(`${emoji || '📌'} "${name}" (${assignee}) [${type}]: ${id}`);
+    }
+  }
+  Logger.log('\n✓ Copy one of these IDs to use in your quantity log rows');
+}
+
+// ── DEBUG HELPER: Show quantity logs ────────────────────────────
+// Run this to see all quantity log data from all assignee sheets
+function debugShowQtyLogs() {
+  Logger.log('=== QUANTITY LOGS DEBUG ===');
+  
+  let totalLogs = 0;
+  Object.values(SHEET_NAMES).forEach(sheetName => {
+    if (sheetName === SHEET_NAMES.habits) return;
+    
+    const sheet = getOrCreateSheet(sheetName);
+    const data = sheet.getDataRange().getValues();
+    const headers = data[0];
+    
+    Logger.log('\n--- Sheet: ' + sheetName + ' ---');
+    Logger.log('Headers: ' + JSON.stringify(headers));
+    
+    if (data.length === 1) {
+      Logger.log('No entries in this sheet.');
+      return;
+    }
+    
+    for (let i = 1; i < data.length; i++) {
+      const [habitId, date, done, qtyValue] = data[i];
+      
+      // Check for problems
+      const issues = [];
+      if (!habitId) issues.push('❌ Missing habitId');
+      if (!date) issues.push('❌ Missing date');
+      
+      const status = issues.length > 0 ? issues.join(', ') : '✓ Valid';
+      
+      Logger.log(`Row ${i}: habitId="${habitId}", date="${formatDate(date)}", done="${done}", qtyValue="${qtyValue}" - ${status}`);
+      
+      if (habitId && date && (qtyValue !== undefined && qtyValue !== null && qtyValue !== '')) {
+        totalLogs++;
+      }
+    }
+  });
+  
+  Logger.log('\n=== SUMMARY ===');
+  Logger.log('Total valid quantity logs: ' + totalLogs);
+  Logger.log('\nIf you see rows with missing habitId, either:');
+  Logger.log('1. Delete those rows, OR');
+  Logger.log('2. Fill in the habitId using showAllHabitIds() to get valid IDs');
 }
