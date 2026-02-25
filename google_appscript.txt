@@ -1,0 +1,422 @@
+
+// ═══════════════════════════════════════════════════════════════
+//  RITUAL HABIT TRACKER — Google Apps Script Backend
+//  Paste this entire file into your Apps Script project.
+//  Deploy as Web App: Execute as "Me", Access "Anyone".
+// ═══════════════════════════════════════════════════════════════
+
+const SHEET_NAMES = {
+  habits:     'Habits',
+  satish:     'Satish',
+  keerthisri: 'KeerthiSri',
+  geetanath:  'Geetanath'
+};
+
+// ── CORS wrapper ────────────────────────────────────────────────
+function doGet(e)  { return handle(e); }
+function doPost(e) { return handle(e); }
+
+function handle(e) {
+  try {
+    const params = e.parameter || {};
+    const body   = e.postData ? JSON.parse(e.postData.contents) : {};
+    const action = params.action || body.action;
+    let result;
+
+    switch (action) {
+      case 'getAll':       result = getAll();                    break;
+      case 'saveHabit':    result = saveHabit(body.habit);       break;
+      case 'deleteHabit':  result = deleteHabit(body.habitId);   break;
+      case 'toggleCompletion': result = toggleCompletion(body);  break;
+      case 'saveQtyLog':   result = saveQtyLog(body);            break;
+      default:             result = { error: 'Unknown action: ' + action };
+    }
+
+    return ContentService
+      .createTextOutput(JSON.stringify({ ok: true, data: result }))
+      .setMimeType(ContentService.MimeType.JSON);
+
+  } catch(err) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ ok: false, error: err.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+// ── Sheet bootstrap ─────────────────────────────────────────────
+function getOrCreateSheet(name) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(name);
+  
+  if (!sheet) {
+    sheet = ss.insertSheet(name);
+    // Set headers based on sheet type
+    if (name === SHEET_NAMES.habits) {
+      sheet.appendRow(['id','name','emoji','freq','color','assignee','assignees','cpN','cpPeriod','type','qtyUnit','qtyGoal','createdAt']);
+      sheet.getRange(1,1,1,13).setFontWeight('bold').setBackground('#e8f5e3');
+    } else {
+      // Assignee completion sheets: habitId | date | done | qtyValue
+      sheet.appendRow(['habitId','date','done','qtyValue']);
+      sheet.getRange(1,1,1,4).setFontWeight('bold').setBackground('#e8f5e3');
+    }
+    sheet.setFrozenRows(1);
+  } else if (name === SHEET_NAMES.habits) {
+    // Existing Habits sheet - check and add missing columns
+    ensureHabitsColumns(sheet);
+  }
+  
+  return sheet;
+}
+
+// Ensure Habits sheet has all required columns
+function ensureHabitsColumns(sheet) {
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const requiredHeaders = ['id','name','emoji','freq','color','assignee','assignees','cpN','cpPeriod','type','qtyUnit','qtyGoal','createdAt'];
+  const missingHeaders = requiredHeaders.filter(h => !headers.includes(h));
+  
+  if (missingHeaders.length > 0) {
+    Logger.log('Adding missing columns to Habits sheet: ' + missingHeaders.join(', '));
+    const startCol = headers.length + 1;
+    missingHeaders.forEach((header, i) => {
+      sheet.getRange(1, startCol + i).setValue(header);
+    });
+    // Format header row
+    sheet.getRange(1, 1, 1, headers.length + missingHeaders.length)
+      .setFontWeight('bold')
+      .setBackground('#e8f5e3');
+  }
+}
+
+// ── GET ALL DATA ─────────────────────────────────────────────────
+// Returns { habits: [...], completions: { habitId: { dateKey: true } }, qtyLogs: { habitId: { dateKey: number } } }
+function getAll() {
+  const habitsSheet = getOrCreateSheet(SHEET_NAMES.habits);
+  const habitsData  = habitsSheet.getDataRange().getValues();
+  const headers     = habitsData[0];
+
+  const habits = habitsData.slice(1).filter(r => r[0]).map(row => {
+    const obj = {};
+    headers.forEach((h, i) => {
+      // Convert empty strings to null for consistency
+      obj[h] = row[i] === '' ? null : row[i];
+    });
+    
+    // Log raw data for first habit to debug
+    if (habitsData.indexOf(row) === 1) {
+      Logger.log('First habit raw data: ' + JSON.stringify(obj));
+    }
+    
+    // Parse numeric fields
+    if (obj.cpN !== null && obj.cpN !== undefined) obj.cpN = Number(obj.cpN);
+    if (obj.qtyGoal !== null && obj.qtyGoal !== undefined && obj.qtyGoal !== '') obj.qtyGoal = Number(obj.qtyGoal);
+    
+    // Parse assignees array (stored as JSON string)
+    if (obj.assignees && typeof obj.assignees === 'string') {
+      try {
+        obj.assignees = JSON.parse(obj.assignees);
+      } catch(e) {
+        // Fallback: comma-separated string
+        obj.assignees = obj.assignees.split(',').map(s => s.trim()).filter(Boolean);
+      }
+    }
+    if (!obj.assignees || !Array.isArray(obj.assignees)) {
+      // Fallback to single assignee
+      obj.assignees = obj.assignee ? [obj.assignee] : [];
+    }
+    
+    // Ensure type field exists (should be 'check' or 'qty')
+    if (!obj.type) {
+      obj.type = 'check';  // default
+    }
+    
+    return obj;
+  });
+  
+  Logger.log('Returning ' + habits.length + ' habits from getAll()');
+
+  // Gather completions and quantity logs from all assignee sheets
+  const completions = {};
+  const qtyLogs = {};
+  Object.values(SHEET_NAMES).forEach(sheetName => {
+    if (sheetName === SHEET_NAMES.habits) return;
+    const sheet = getOrCreateSheet(sheetName);
+    const data  = sheet.getDataRange().getValues();
+    
+    // Ensure qtyValue column exists (migration for existing sheets)
+    if (data[0].length === 3 && data[0].indexOf('qtyValue') === -1) {
+      sheet.getRange(1, 4).setValue('qtyValue');
+      sheet.getRange(1, 1, 1, 4).setFontWeight('bold').setBackground('#e8f5e3');
+      Logger.log('Added qtyValue column to sheet: ' + sheetName);
+    }
+    
+    data.slice(1).forEach(row => {
+      const [habitId, date, done, qtyValue] = row;
+      if (!habitId || !date) return;
+      const dateStr = formatDate(date);
+      
+      // Store completions (for check-type habits)
+      if (done) {
+        if (!completions[habitId]) completions[habitId] = {};
+        completions[habitId][dateStr] = true;
+      }
+      
+      // Store quantity logs (for qty-type habits)
+      if (qtyValue !== undefined && qtyValue !== null && qtyValue !== '') {
+        if (!qtyLogs[habitId]) qtyLogs[habitId] = {};
+        qtyLogs[habitId][dateStr] = Number(qtyValue);
+      }
+    });
+  });
+
+  return { habits, completions, qtyLogs };
+}
+
+// ── SAVE HABIT ───────────────────────────────────────────────────
+// Upserts a habit row in the Habits sheet
+function saveHabit(habit) {
+  const sheet   = getOrCreateSheet(SHEET_NAMES.habits);
+  const data    = sheet.getDataRange().getValues();
+  const headers = data[0];
+  
+  // Log the incoming habit for debugging
+  Logger.log('Saving habit: ' + JSON.stringify(habit));
+  
+  // Remove local-only fields that shouldn't be saved to sheets
+  const cleanHabit = Object.assign({}, habit);
+  delete cleanHabit.synced;
+
+  // Find existing row by id
+  let rowIdx = -1;
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(habit.id)) { rowIdx = i + 1; break; }
+  }
+
+  const row = headers.map(h => {
+    const v = cleanHabit[h];
+    // Special handling for assignees array - store as JSON
+    if (h === 'assignees' && Array.isArray(v)) {
+      return JSON.stringify(v);
+    }
+    // Convert null/undefined to empty string for sheets
+    if (v === undefined || v === null) return '';
+    // For boolean, number, string - return as is
+    return v;
+  });
+  
+  // Create a debug object to see what we're saving
+  const debugObj = {};
+  headers.forEach((h, i) => {
+    debugObj[h] = row[i];
+  });
+  Logger.log('Saving row with values: ' + JSON.stringify(debugObj));
+
+  if (rowIdx > 0) {
+    sheet.getRange(rowIdx, 1, 1, row.length).setValues([row]);
+    Logger.log('Updated existing row ' + rowIdx);
+  } else {
+    sheet.appendRow(row);
+    Logger.log('Appended new row');
+  }
+  return { saved: habit.id };
+}
+
+// ── DELETE HABIT ─────────────────────────────────────────────────
+function deleteHabit(habitId) {
+  // Remove from Habits sheet
+  const hSheet = getOrCreateSheet(SHEET_NAMES.habits);
+  const hData  = hSheet.getDataRange().getValues();
+  for (let i = hData.length - 1; i >= 1; i--) {
+    if (String(hData[i][0]) === String(habitId)) {
+      hSheet.deleteRow(i + 1);
+      break;
+    }
+  }
+
+  // Remove completions from all assignee sheets
+  Object.values(SHEET_NAMES).forEach(sheetName => {
+    if (sheetName === SHEET_NAMES.habits) return;
+    const sheet = getOrCreateSheet(sheetName);
+    const data  = sheet.getDataRange().getValues();
+    // Delete in reverse to preserve row indices
+    for (let i = data.length - 1; i >= 1; i--) {
+      if (String(data[i][0]) === String(habitId)) sheet.deleteRow(i + 1);
+    }
+  });
+
+  return { deleted: habitId };
+}
+
+// ── TOGGLE COMPLETION ────────────────────────────────────────────
+// body: { habitId, dateKey, assignee, value: true/false }
+function toggleCompletion(body) {
+  const { habitId, dateKey, assignee, value } = body;
+  const sheetName = SHEET_NAMES[assignee] || SHEET_NAMES.satish;
+  const sheet     = getOrCreateSheet(sheetName);
+  const data      = sheet.getDataRange().getValues();
+
+  // Find existing row
+  let foundRow = -1;
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(habitId) && formatDate(data[i][1]) === dateKey) {
+      foundRow = i + 1; break;
+    }
+  }
+
+  if (value === true || value === 'true') {
+    if (foundRow > 0) {
+      sheet.getRange(foundRow, 3).setValue(true);
+    } else {
+      sheet.appendRow([habitId, dateKey, true, '']);
+    }
+  } else {
+    // Mark as false or delete the row
+    if (foundRow > 0) sheet.deleteRow(foundRow);
+  }
+
+  return { habitId, dateKey, value };
+}
+
+// ── SAVE QUANTITY LOG ────────────────────────────────────────────
+// body: { habitId, dateKey, assignee, qtyValue: number }
+function saveQtyLog(body) {
+  const { habitId, dateKey, assignee, qtyValue } = body;
+  const sheetName = SHEET_NAMES[assignee] || SHEET_NAMES.satish;
+  const sheet     = getOrCreateSheet(sheetName);
+  const data      = sheet.getDataRange().getValues();
+  
+  Logger.log('Saving qty log: habitId=' + habitId + ', dateKey=' + dateKey + ', assignee=' + assignee + ', qtyValue=' + qtyValue);
+
+  // Find existing row
+  let foundRow = -1;
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(habitId) && formatDate(data[i][1]) === dateKey) {
+      foundRow = i + 1; break;
+    }
+  }
+
+  if (qtyValue !== undefined && qtyValue !== null && qtyValue !== '') {
+    if (foundRow > 0) {
+      // Update existing row - set qtyValue in column 4
+      sheet.getRange(foundRow, 4).setValue(Number(qtyValue));
+      Logger.log('Updated existing row ' + foundRow + ' with qtyValue: ' + qtyValue);
+    } else {
+      // Add new row: habitId, dateKey, done (empty for qty habits), qtyValue
+      sheet.appendRow([habitId, dateKey, '', Number(qtyValue)]);
+      Logger.log('Appended new row with qtyValue: ' + qtyValue);
+    }
+  } else if (foundRow > 0) {
+    // Delete if qtyValue is empty/null
+    sheet.deleteRow(foundRow);
+    Logger.log('Deleted row ' + foundRow + ' (qtyValue was empty)');
+  }
+
+  return { habitId, dateKey, qtyValue };
+}
+
+// ── HELPERS ──────────────────────────────────────────────────────
+function formatDate(val) {
+  if (!val) return '';
+  if (typeof val === 'string') return val.substring(0, 10);
+  // Date object from Sheets - use local date parts to avoid timezone issues
+  const d = new Date(val);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+// ── MIGRATION HELPER ─────────────────────────────────────────────
+// Run this once manually if you have an existing Habits sheet
+// It will add the missing columns: assignees, type, qtyUnit, qtyGoal
+function migrateHabitsSheet() {
+  const sheet = getOrCreateSheet(SHEET_NAMES.habits);
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  
+  // Check which columns are missing
+  const requiredHeaders = ['id','name','emoji','freq','color','assignee','assignees','cpN','cpPeriod','type','qtyUnit','qtyGoal','createdAt'];
+  const missingHeaders = requiredHeaders.filter(h => !headers.includes(h));
+  
+  if (missingHeaders.length === 0) {
+    Logger.log('No migration needed - all columns present');
+    return;
+  }
+  
+  Logger.log('Adding missing columns: ' + missingHeaders.join(', '));
+  
+  // Add missing columns to the end
+  const startCol = headers.length + 1;
+  missingHeaders.forEach((header, i) => {
+    sheet.getRange(1, startCol + i).setValue(header);
+  });
+  
+  // Format header row
+  sheet.getRange(1, 1, 1, headers.length + missingHeaders.length)
+    .setFontWeight('bold')
+    .setBackground('#e8f5e3');
+  
+  Logger.log('Migration complete! Added ' + missingHeaders.length + ' columns.');
+}
+// ── DEBUG HELPER ─────────────────────────────────────────────────
+// Run this to see what's currently in your Habits sheet
+function debugShowHabitsData() {
+  const sheet = getOrCreateSheet(SHEET_NAMES.habits);
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  
+  Logger.log('=== HABITS SHEET DEBUG ===');
+  Logger.log('Headers: ' + JSON.stringify(headers));
+  Logger.log('Total rows (including header): ' + data.length);
+  
+  if (data.length > 1) {
+    Logger.log('\nHabit rows:');
+    for (let i = 1; i < data.length; i++) {
+      const habitObj = {};
+      headers.forEach((h, idx) => {
+        habitObj[h] = data[i][idx];
+      });
+      Logger.log('Row ' + i + ': ' + JSON.stringify(habitObj));
+    }
+  } else {
+    Logger.log('No habits found in sheet');
+  }
+}
+
+// ── TEST FUNCTION ────────────────────────────────────────────────
+// Run this to test saving a habit with all fields
+function testSaveHabit() {
+  const testHabit = {
+    id: 'test_' + Date.now(),
+    name: 'Test Quantity Habit',
+    emoji: '💧',
+    freq: 'daily',
+    color: '#3d7a3a',
+    assignee: 'satish',
+    assignees: ['satish', 'keerthisri'],
+    cpN: null,
+    cpPeriod: null,
+    type: 'qty',
+    qtyUnit: 'L',
+    qtyGoal: '3',
+    createdAt: '2026-02-25'
+  };
+  
+  Logger.log('=== TEST SAVE HABIT ===');
+  Logger.log('Testing save habit with data: ' + JSON.stringify(testHabit));
+  const result = saveHabit(testHabit);
+  Logger.log('Save result: ' + JSON.stringify(result));
+  
+  Logger.log('\nNow running getAll() to verify...');
+  const allData = getAll();
+  Logger.log('Retrieved ' + allData.habits.length + ' habits');
+  
+  const retrieved = allData.habits.find(h => h.id === testHabit.id);
+  if (retrieved) {
+    Logger.log('✓ Successfully retrieved test habit!');
+    Logger.log('Retrieved habit: ' + JSON.stringify(retrieved));
+    Logger.log('Type field: "' + retrieved.type + '" (expected: "qty")');
+    Logger.log('QtyUnit field: "' + retrieved.qtyUnit + '" (expected: "L")');
+    Logger.log('QtyGoal field: "' + retrieved.qtyGoal + '" (expected: "3")');
+  } else {
+    Logger.log('✗ ERROR: Could not retrieve test habit!');
+  }
+}
