@@ -42,32 +42,16 @@ Your weekly planner now automatically syncs with your Notion page "2026 Goals | 
 1. Open the Notion page
 2. Copy the URL - the ID is between the last `/` and the `?` (if any)
 
-### Step 4: Install Browser Extension (Recommended)
-
-**⚠️ CORS Issue:** Browsers block direct API calls to Notion. You need to bypass this restriction.
-
-**Option A: Browser Extension (Easiest)**
-1. Install one of these browser extensions:
-   - **Chrome/Edge**: [Allow CORS: Access-Control-Allow-Origin](https://chrome.google.com/webstore/detail/allow-cors-access-control/lhobafahddgcelffkeicbaginigeejlf)
-   - **Chrome/Edge**: [CORS Unblock](https://chrome.google.com/webstore/detail/cors-unblock/lfhmikememgdcahcdlaciloancbhjino)
-   - **Firefox**: [CORS Everywhere](https://addons.mozilla.org/en-US/firefox/addon/cors-everywhere/)
-2. Enable the extension when using your planner
-3. ⚠️ Disable it after use for security
-
-**Option B: Cloudflare Worker (Advanced)**
-- Create a Cloudflare Worker to proxy Notion requests
-- See the "Cloudflare Worker Setup" section below
-
-### Step 5: Configure in Planner
+### Step 4: Configure in Planner
 
 1. Open `keerthi-planner.html` in your browser
 2. Click the **"🎯 Notion"** button in the header
 3. Paste your **Notion API Key** (the secret token from Step 1)
 4. Paste your **Page/Database ID** (from Step 3)
-5. Choose **Method**:
-   - **Browser Extension** (Recommended) - If you installed a CORS extension
-   - **Cloudflare Worker** - If you created a worker (enter URL below)
-   - **Direct** - Only if CORS is disabled in browser (not recommended)
+5. **CORS Proxy URL**: Leave as default (`https://corsproxy.io/?`) or use your own
+   - 💡 **Why needed?** Browsers block direct API calls to Notion for security (CORS policy)
+   - The proxy acts as a middleman to bypass browser restrictions
+   - Alternative proxies: `https://api.allorigins.win/raw?url=` or host your own
 6. Click **"💾 Save & Load"**
 
 ## 📊 Required Notion Database Structure
@@ -98,73 +82,6 @@ Use these exact values in your Priority column (case-insensitive):
 │ Done task       │ I_U      │ ☑         │ <- This will be filtered out
 └─────────────────┴──────────┴───────────┘
 ```
-
-## ☁️ Cloudflare Worker Setup (Advanced)
-
-If you don't want to use a browser extension, you can create a Cloudflare Worker to proxy Notion requests:
-
-### Step 1: Create Worker
-1. Go to [Cloudflare Workers](https://workers.cloudflare.com/)
-2. Sign up for a free account
-3. Click **"Create a Service"**
-4. Name it (e.g., "notion-proxy")
-5. Click **"Quick Edit"**
-
-### Step 2: Add Worker Code
-Replace the default code with:
-
-```javascript
-addEventListener('fetch', event => {
-  event.respondWith(handleRequest(event.request))
-})
-
-async function handleRequest(request) {
-  // Handle CORS preflight
-  if (request.method === 'OPTIONS') {
-    return new Response(null, {
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization, Notion-Version'
-      }
-    })
-  }
-
-  try {
-    const body = await request.json()
-    
-    // Make request to Notion API
-    const response = await fetch(body.endpoint, {
-      method: body.method,
-      headers: body.headers,
-      body: body.body ? JSON.stringify(body.body) : undefined
-    })
-    
-    const data = await response.text()
-    
-    return new Response(data, {
-      status: response.status,
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*'
-      }
-    })
-  } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*'
-      }
-    })
-  }
-}
-```
-
-### Step 3: Deploy
-1. Click **"Save and Deploy"**
-2. Copy your worker URL (e.g., `https://notion-proxy.your-username.workers.dev`)
-3. Use this URL in your planner's Notion settings
 
 ## 🔄 How to Use
 
@@ -216,24 +133,20 @@ async function handleRequest(request) {
 ### "⚠️ Failed to load: Failed to fetch"
 **This is a CORS (Cross-Origin Resource Sharing) error:**
 - Browsers block direct calls to Notion API for security
-- **Solution 1 - Browser Extension (Easiest):**
-  - Install "Allow CORS" or "CORS Unblock" extension
-  - Enable it before loading tasks
-  - Select "Browser Extension" method in Notion settings
-- **Solution 2 - Cloudflare Worker:**
-  - Create a Cloudflare Worker (see setup guide above)
-  - Enter your worker URL in settings
-  - Select "Cloudflare Worker" method
+- **Solution**: Use a CORS proxy (already configured by default)
+- Default proxy: `https://corsproxy.io/?`
+- **Alternative proxies** you can try:
+  - `https://api.allorigins.win/raw?url=`
+  - `https://cors-anywhere.herokuapp.com/` (may require activation)
+  - Host your own CORS proxy server
+- Change the proxy in Notion settings if the default doesn't work
 - Check browser console (F12) for detailed error messages
 
-### "⚠️ Failed to load: Invalid API token" or "401 Unauthorized"
-- Your API token is incorrect
-- Make sure you copied the full token starting with `secret_`
-- Token format: `secret_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`
-- Generate a new integration token at [notion.so/my-integrations](https://www.notion.so/my-integrations)
-- Make sure the integration has access to your database (Step 2)
+### "⚠️ Failed to load: 401 Unauthorized"
+- Your API key is incorrect
+- Generate a new integration token and update settings
 
-### "⚠️ Failed to load: Database not found" or "404 Not Found"
+### "⚠️ Failed to load: 404 Not Found"
 - Your Page/Database ID is incorrect
 - Make sure you shared the page with your integration
 - Copy the ID again from the URL
@@ -245,6 +158,13 @@ async function handleRequest(request) {
 4. Verify the integration has access to the page
 5. Open browser console (F12) to see detailed error messages
 
+### CORS Errors
+- **Already fixed!** The integration now uses a CORS proxy by default
+- If you still see CORS errors, try these alternative proxies:
+  1. `https://api.allorigins.win/raw?url=`
+  2. `https://thingproxy.freeboard.io/fetch/`
+  3. Host your own proxy server for better reliability
+- Change the proxy URL in 🎯 Notion settings
 
 ## 💡 Tips & Best Practices
 
@@ -258,18 +178,15 @@ async function handleRequest(request) {
 ## 🔐 Privacy & Security
 
 - Your Notion API key is stored **locally** in your browser's localStorage
-- **Browser Extension Method:**
-  - Direct connection between your browser and Notion
-  - No third-party proxy involved
-  - API key stays in your browser
-  - ⚠️ CORS extension can be security risk - only enable when needed
-- **Cloudflare Worker Method:**
-  - Your worker proxies requests (you control the code)
-  - API key sent to your own worker
-  - More secure than public proxies
+- API calls go through a CORS proxy to work around browser restrictions
+- The default proxy (corsproxy.io) is a public service - use at your own risk
+- For sensitive data, consider hosting your own CORS proxy
+- No data is sent to any server except:
+  1. The CORS proxy (to forward requests)
+  2. Notion API (to fetch your tasks)
 - The integration only **reads** from your Notion database
 - It does **not write back** to Notion (one-way sync)
-- API key never leaves your device (except to Notion API)
+- API key never leaves your device (stored locally)
 
 ## 📱 Mobile Usage
 

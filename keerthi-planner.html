@@ -346,52 +346,21 @@ textarea:focus,input[type=text]:focus,input[type=number]:focus{border-color:var(
 </div>
 
 <div class="sync-modal" id="notionModal">
-  <div class="sync-modal-content" style="max-width:650px">
+  <div class="sync-modal-content">
     <h3>🎯 Notion Integration</h3>
     <p style="color:var(--muted);font-size:.85rem;margin-bottom:16px">Connect your Notion page "2026 Goals | This_Week" to automatically sync your weekly tasks.</p>
     <input type="text" id="notionApiKey" placeholder="secret_xxxxxxxxxxxxx" style="margin-bottom:8px">
     <p style="color:var(--dim);font-size:.75rem;margin-bottom:8px">Notion API Key (from <a href="https://www.notion.so/my-integrations" target="_blank" style="color:var(--purple)">notion.so/my-integrations</a>)</p>
-    <input type="text" id="notionPageId" placeholder="Page ID or Database ID" style="margin-bottom:12px">
-    <p style="color:var(--dim);font-size:.75rem;margin-bottom:12px">Page/Database ID from your Notion URL</p>
-    
-    <div style="margin-bottom:12px;padding:12px;background:rgba(255,107,107,.1);border-radius:8px;border:1px solid rgba(255,107,107,.3)">
-      <p style="color:var(--coral);font-size:.8rem;font-weight:700;margin-bottom:8px">⚠️ CORS Proxy Issue</p>
-      <p style="color:var(--text);font-size:.75rem;margin-bottom:8px">Most CORS proxies don't forward Authorization headers. Choose a method:</p>
-      <select id="notionMethod" style="width:100%;padding:8px;border-radius:8px;background:var(--bg);color:var(--text);border:2px solid var(--border);font-size:.85rem;margin-bottom:8px">
-        <option value="extension">Browser Extension (Recommended)</option>
-        <option value="worker">Cloudflare Worker</option>
-        <option value="direct">Direct (might fail with CORS)</option>
-      </select>
-      <p style="color:var(--dim);font-size:.7rem;line-height:1.4">
-        <strong>Browser Extension:</strong> Install "Allow CORS" or "CORS Unblock" extension<br>
-        <strong>Cloudflare Worker:</strong> Enter your worker URL below<br>
-        <strong>Direct:</strong> Only works if CORS is disabled in browser
-      </p>
-    </div>
-    
-    <input type="text" id="notionWorkerUrl" placeholder="https://your-worker.workers.dev (optional)" style="margin-bottom:8px;display:none">
-    <p id="workerHint" style="color:var(--dim);font-size:.75rem;margin-bottom:12px;display:none">Your Cloudflare Worker URL for proxying Notion requests</p>
-    
+    <input type="text" id="notionPageId" placeholder="Page ID or Database ID" style="margin-bottom:8px">
+    <p style="color:var(--dim);font-size:.75rem;margin-bottom:8px">Page/Database ID from your Notion URL</p>
+    <input type="text" id="notionCorsProxy" placeholder="https://corsproxy.io/?" style="margin-bottom:8px">
+    <p style="color:var(--dim);font-size:.75rem;margin-bottom:12px">CORS Proxy URL (needed for browser access) - Default: corsproxy.io</p>
     <div class="sync-modal-btns">
       <button class="modal-btn-secondary" onclick="closeNotionSettings()">Cancel</button>
       <button class="modal-btn-primary" onclick="saveNotionSettings()">💾 Save & Load</button>
     </div>
   </div>
 </div>
-
-<script>
-document.getElementById('notionMethod')?.addEventListener('change',function(){
-  const workerUrl=document.getElementById('notionWorkerUrl');
-  const workerHint=document.getElementById('workerHint');
-  if(this.value==='worker'){
-    workerUrl.style.display='block';
-    workerHint.style.display='block';
-  }else{
-    workerUrl.style.display='none';
-    workerHint.style.display='none';
-  }
-});
-</script>
 
 <script>
 // Immediate sidebar mobile initialization
@@ -753,24 +722,17 @@ function updateAll(){
 // NOTION INTEGRATION
 let NOTION_API_KEY=localStorage.getItem('notionApiKey')||'';
 let NOTION_PAGE_ID=localStorage.getItem('notionPageId')||'';
-let NOTION_METHOD=localStorage.getItem('notionMethod')||'extension';
-let NOTION_WORKER_URL=localStorage.getItem('notionWorkerUrl')||'';
+let NOTION_CORS_PROXY=localStorage.getItem('notionCorsProxy')||'https://corsproxy.io/?';
 let NOTION_AUTO_LOAD=localStorage.getItem('notionAutoLoad')!=='false'; // Default true
 
 function openNotionSettings(){
   const modal=document.getElementById('notionModal');
   const keyInput=document.getElementById('notionApiKey');
   const pageInput=document.getElementById('notionPageId');
-  const methodSelect=document.getElementById('notionMethod');
-  const workerInput=document.getElementById('notionWorkerUrl');
+  const proxyInput=document.getElementById('notionCorsProxy');
   if(keyInput)keyInput.value=NOTION_API_KEY||'';
   if(pageInput)pageInput.value=NOTION_PAGE_ID||'';
-  if(methodSelect){
-    methodSelect.value=NOTION_METHOD||'extension';
-    const event=new Event('change');
-    methodSelect.dispatchEvent(event);
-  }
-  if(workerInput)workerInput.value=NOTION_WORKER_URL||'';
+  if(proxyInput)proxyInput.value=NOTION_CORS_PROXY||'https://corsproxy.io/?';
   if(modal)modal.classList.add('show');
 }
 
@@ -782,26 +744,16 @@ function closeNotionSettings(){
 async function saveNotionSettings(){
   const keyInput=document.getElementById('notionApiKey');
   const pageInput=document.getElementById('notionPageId');
-  const methodSelect=document.getElementById('notionMethod');
-  const workerInput=document.getElementById('notionWorkerUrl');
+  const proxyInput=document.getElementById('notionCorsProxy');
   NOTION_API_KEY=keyInput.value.trim();
   NOTION_PAGE_ID=pageInput.value.trim();
-  NOTION_METHOD=methodSelect.value;
-  NOTION_WORKER_URL=workerInput.value.trim();
+  NOTION_CORS_PROXY=proxyInput.value.trim()||'https://corsproxy.io/?';
   localStorage.setItem('notionApiKey',NOTION_API_KEY);
   localStorage.setItem('notionPageId',NOTION_PAGE_ID);
-  localStorage.setItem('notionMethod',NOTION_METHOD);
-  localStorage.setItem('notionWorkerUrl',NOTION_WORKER_URL);
+  localStorage.setItem('notionCorsProxy',NOTION_CORS_PROXY);
   closeNotionSettings();
   if(NOTION_API_KEY&&NOTION_PAGE_ID){
-    if(NOTION_METHOD==='extension'){
-      toast('✓ Settings saved! Make sure CORS extension is enabled.');
-    }else if(NOTION_METHOD==='worker'&&!NOTION_WORKER_URL){
-      toast('⚠️ Please provide Cloudflare Worker URL');
-      return;
-    }else{
-      toast('✓ Notion settings saved! Loading tasks...');
-    }
+    toast('✓ Notion settings saved! Loading tasks...');
     await loadNotionTasks(true);
   }else{
     toast('⚠️ Please provide both API key and Page ID');
@@ -836,56 +788,27 @@ async function loadNotionTasks(forceLoad=false){
       ?`https://api.notion.com/v1/databases/${NOTION_PAGE_ID}/query`
       :`https://api.notion.com/v1/pages/${NOTION_PAGE_ID}`;
     
-    let endpoint=notionEndpoint;
+    // Use CORS proxy to avoid browser CORS issues
+    const endpoint=NOTION_CORS_PROXY+encodeURIComponent(notionEndpoint);
     
-    // Choose endpoint based on method
-    if(NOTION_METHOD==='worker'&&NOTION_WORKER_URL){
-      endpoint=NOTION_WORKER_URL;
-    }else if(NOTION_METHOD==='direct'){
-      endpoint=notionEndpoint;
-    }else{
-      // extension method - use direct endpoint, rely on browser extension
-      endpoint=notionEndpoint;
-    }
+    console.log('Fetching from Notion via proxy...',{endpoint:notionEndpoint,proxy:NOTION_CORS_PROXY});
     
-    console.log('Fetching from Notion...',{method:NOTION_METHOD,endpoint,isDatabaseId});
-    
-    const fetchOptions={
+    const response=await fetch(endpoint,{
       method:isDatabaseId?'POST':'GET',
       headers:{
         'Authorization':`Bearer ${NOTION_API_KEY}`,
         'Notion-Version':'2022-06-28',
         'Content-Type':'application/json'
-      }
-    };
-    
-    // For worker method, pass the actual Notion endpoint and credentials
-    if(NOTION_METHOD==='worker'){
-      fetchOptions.body=JSON.stringify({
-        endpoint:notionEndpoint,
-        method:isDatabaseId?'POST':'GET',
-        headers:fetchOptions.headers,
-        body:isDatabaseId?{filter:{property:'completed',checkbox:{equals:false}}}:undefined
-      });
-    }else if(isDatabaseId){
-      fetchOptions.body=JSON.stringify({filter:{property:'completed',checkbox:{equals:false}}});
-    }
-    
-    const response=await fetch(endpoint,fetchOptions);
+      },
+      body:isDatabaseId?JSON.stringify({filter:{property:'completed',checkbox:{equals:false}}}):(undefined)
+    });
     
     console.log('Notion API response status:',response.status);
     
     if(!response.ok){
       const errorText=await response.text();
       console.error('Notion API error response:',errorText);
-      
-      if(response.status===401){
-        throw new Error('Invalid API token. Check your Notion integration token.');
-      }else if(response.status===404){
-        throw new Error('Database not found. Check your Page ID and integration permissions.');
-      }else{
-        throw new Error(`API error ${response.status}: ${response.statusText}`);
-      }
+      throw new Error(`API error ${response.status}: ${response.statusText}`);
     }
     
     const data=await response.json();
