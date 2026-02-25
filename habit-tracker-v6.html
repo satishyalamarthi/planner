@@ -2260,13 +2260,13 @@ function exportYearlyPDF(){
   // Title
   doc.setFontSize(22);
   doc.setTextColor(255, 107, 107);
-  doc.text(`Habit Tracker - ${yr}`, pageWidth/2, yPos, {align:'center'});
+  doc.text('Habit Tracker - ' + String(yr), pageWidth/2, yPos, {align:'center'});
   yPos += 12;
   
   // Subtitle
   doc.setFontSize(11);
   doc.setTextColor(100, 100, 100);
-  doc.text(`Generated on ${new Date().toLocaleDateString()}`, pageWidth/2, yPos, {align:'center'});
+  doc.text('Generated on ' + String(new Date().toLocaleDateString()), pageWidth/2, yPos, {align:'center'});
   yPos += 12;
   
   // Calculate yearly stats
@@ -2296,11 +2296,11 @@ function exportYearlyPDF(){
   const totT = hStats.reduce((s,x)=>s+x.target, 0);
   const yrPct = totT ? Math.round(totD/totT*100) : 0;
   
-  doc.text(`Total Habits: ${habs.length}`, margin + 5, yPos + 8);
-  doc.text(`Total Completions: ${totD}`, margin + 5, yPos + 15);
-  doc.text(`Overall Rate: ${yrPct}%`, margin + 5, yPos + 22);
-  doc.text(`Active Days: ${activeDays.size}`, margin + 70, yPos + 8);
-  doc.text(`Best Streak: ${bestStreak()} days`, margin + 70, yPos + 15);
+  doc.text('Total Habits: ' + String(habs.length), margin + 5, yPos + 8);
+  doc.text('Total Completions: ' + String(totD), margin + 5, yPos + 15);
+  doc.text('Overall Rate: ' + String(yrPct) + '%', margin + 5, yPos + 22);
+  doc.text('Active Days: ' + String(activeDays.size), margin + 70, yPos + 8);
+  doc.text('Best Streak: ' + String(bestStreak()) + ' days', margin + 70, yPos + 15);
   yPos += 32;
   
   // Separate habits by type
@@ -2360,15 +2360,15 @@ function exportYearlyPDF(){
       const ids = Array.isArray(h.assignees) ? h.assignees : (h.assignee ? [h.assignee] : []);
       const names = ids.map(id => {
         const a = getAv(id);
-        return a ? a.name : id;
+        return a ? a.name : String(id);
       }).join(', ') || 'All';
-      doc.text(names, margin + 2, yPos);
+      doc.text(String(names), margin + 2, yPos);
       // Habit name
-      doc.text(h.name, margin + 35, yPos);
+      doc.text(String(h.name), margin + 35, yPos);
       // Monthly count
-      doc.text(`${monthlyDone}/${monthlyTarget}`, margin + 100, yPos);
+      doc.text(String(monthlyDone) + '/' + String(monthlyTarget), margin + 100, yPos);
       // Yearly count
-      doc.text(`${yearlyDone}/${yearlyTarget}`, margin + 140, yPos);
+      doc.text(String(yearlyDone) + '/' + String(yearlyTarget), margin + 140, yPos);
       
       yPos += lineHeight;
     });
@@ -2439,16 +2439,16 @@ function exportYearlyPDF(){
       const ids = Array.isArray(h.assignees) ? h.assignees : (h.assignee ? [h.assignee] : []);
       const names = ids.map(id => {
         const a = getAv(id);
-        return a ? a.name : id;
+        return a ? a.name : String(id);
       }).join(', ') || 'All';
-      doc.text(names, margin + 2, yPos);
+      doc.text(String(names), margin + 2, yPos);
       // Habit name with unit
       const habitText = h.qtyUnit ? `${h.name} (${h.qtyUnit})` : h.name;
-      doc.text(habitText, margin + 28, yPos);
+      doc.text(String(habitText), margin + 28, yPos);
       // Monthly stats
-      doc.text(`${mAvg}/${mMin}/${mMax}`, margin + 85, yPos);
+      doc.text(String(mAvg) + '/' + String(mMin) + '/' + String(mMax), margin + 85, yPos);
       // Yearly stats
-      doc.text(`${yAvg}/${yMin}/${yMax}`, margin + 145, yPos);
+      doc.text(String(yAvg) + '/' + String(yMin) + '/' + String(yMax), margin + 145, yPos);
       
       yPos += lineHeight;
     });
@@ -2506,8 +2506,8 @@ function exportYearlyPDF(){
       doc.setFontSize(12);
       doc.setTextColor(60, 60, 60);
       doc.setFont(undefined, 'bold');
-      const unitText = h.qtyUnit ? ` (${h.qtyUnit})` : '';
-      doc.text(`${h.name}${unitText}`, margin, yPos);
+      const unitText = h.qtyUnit ? ' (' + String(h.qtyUnit) + ')' : '';
+      doc.text(String(h.name) + unitText, margin, yPos);
       doc.setFont(undefined, 'normal');
       yPos += 8;
       
@@ -2525,7 +2525,7 @@ function exportYearlyPDF(){
       doc.setFontSize(10);
       doc.setFont(undefined, 'bold');
       doc.setTextColor(60, 60, 60);
-      doc.text(avg.toString(), margin + 2, yPos + 9);
+      doc.text(String(avg), margin + 2, yPos + 9);
       doc.setFont(undefined, 'normal');
       
       // Max box
@@ -2537,7 +2537,7 @@ function exportYearlyPDF(){
       doc.setFontSize(10);
       doc.setFont(undefined, 'bold');
       doc.setTextColor(107, 203, 119);
-      doc.text(maxV.toString(), margin + statBoxW + statBoxGap + 2, yPos + 9);
+      doc.text(String(maxV), margin + statBoxW + statBoxGap + 2, yPos + 9);
       doc.setFont(undefined, 'normal');
       
       // Min box
@@ -2549,7 +2549,7 @@ function exportYearlyPDF(){
       doc.setFontSize(10);
       doc.setFont(undefined, 'bold');
       doc.setTextColor(255, 154, 60);
-      doc.text(minV.toString(), margin + (statBoxW + statBoxGap) * 2 + 2, yPos + 9);
+      doc.text(String(minV), margin + (statBoxW + statBoxGap) * 2 + 2, yPos + 9);
       doc.setFont(undefined, 'normal');
       
       // Trend box
@@ -2562,7 +2562,7 @@ function exportYearlyPDF(){
       doc.setFontSize(10);
       doc.setFont(undefined, 'bold');
       doc.setTextColor(...trendColor);
-      doc.text(trendStr, margin + (statBoxW + statBoxGap) * 3 + 2, yPos + 9);
+      doc.text(String(trendStr), margin + (statBoxW + statBoxGap) * 3 + 2, yPos + 9);
       doc.setFont(undefined, 'normal');
       
       yPos += statBoxH + 6;
@@ -2594,7 +2594,7 @@ function exportYearlyPDF(){
       chartData.forEach((d, i) => {
         if(i % 5 === 0 || i === chartData.length - 1) {
           const labelX = margin + i * (barW + 1) + barW / 2;
-          doc.text(d.date.toString(), labelX, yPos + chartH + 4, { align: 'center' });
+          doc.text(String(d.date), labelX, yPos + chartH + 4, { align: 'center' });
         }
       });
       
@@ -2639,10 +2639,10 @@ function exportYearlyPDF(){
     doc.setFontSize(10);
     doc.setTextColor(60, 60, 60);
     doc.setFont(undefined, 'bold');
-    doc.text(m, margin + 2, yPos);
+    doc.text(String(m), margin + 2, yPos);
     doc.setFont(undefined, 'normal');
     doc.setFontSize(9);
-    doc.text(`${mTD}/${mTT} completions`, margin + 50, yPos);
+    doc.text(String(mTD) + '/' + String(mTT) + ' completions', margin + 50, yPos);
     
     // Progress bar for month
     const barW = 60;
@@ -2655,7 +2655,7 @@ function exportYearlyPDF(){
       else doc.setFillColor(255, 107, 107);
       doc.rect(barX, yPos - 3.5, barW * mP / 100, 5, 'F');
     }
-    doc.text(`${mP}%`, pageWidth - margin - 10, yPos, {align: 'right'});
+    doc.text(String(mP) + '%', pageWidth - margin - 10, yPos, {align: 'right'});
     
     yPos += 8;
   });
