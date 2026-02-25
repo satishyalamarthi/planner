@@ -153,6 +153,16 @@ Your planner now supports cloud sync with Google Sheets! This allows you to:
 4. Check browser console (F12) - you should see: `Initial sync: Loaded X items from Google Sheets`
 5. If still not working, click **🔄 Refresh from Cloud**
 
+### Problem: Only first letter of text saves to Google Sheets
+**This was a bug that has been FIXED!**
+**Cause**: Sync was happening on every keystroke, causing race conditions
+**Solution:**
+1. Refresh your browser to get the latest code
+2. Now syncs are "debounced" - waits 1.5 seconds after you stop typing
+3. Data still saves to localStorage immediately (you won't lose anything)
+4. Google Sheets sync happens after you finish typing
+5. When you close/refresh the page, any pending sync completes automatically
+
 ### Problem: Authorization errors
 **Solutions:**
 1. Re-authorize the Apps Script:

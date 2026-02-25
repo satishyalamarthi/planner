@@ -626,10 +626,38 @@ const VBS=[{label:'💖 Love & Relationships',key:'love'},{label:'💼 Career & 
 const YGA=[{label:'💖 Relationships & Family',key:'rel'},{label:'💼 Career',key:'career'},{label:'🌿 Health & Fitness',key:'health'},{label:'💰 Finance',key:'finance'},{label:'🧠 Mental Wellbeing',key:'mental'},{label:'🏠 Home',key:'home'},{label:'🎨 Hobbies',key:'hobbies'},{label:'👶 Geetanath',key:'geet'}];
 
 function load(){try{db=JSON.parse(localStorage.getItem(SK)||'{}')}catch(e){db={}}}
-function persist(){try{localStorage.setItem(SK,JSON.stringify(db));toast('✓ Saved!');syncToSheets()}catch(e){toast('⚠️ Storage full!')}}
+
+// Debounce timer for Google Sheets sync
+let syncDebounceTimer=null;
+function persist(){
+  try{
+    // Save to localStorage immediately (fast, local)
+    localStorage.setItem(SK,JSON.stringify(db));
+    toast('✓ Saved!');
+    
+    // Debounce Google Sheets sync (wait for user to stop typing)
+    if(syncDebounceTimer){
+      clearTimeout(syncDebounceTimer);
+    }
+    syncDebounceTimer=setTimeout(()=>{
+      syncToSheets();
+      syncDebounceTimer=null;
+    },1500); // Wait 1.5 seconds after last keystroke
+  }catch(e){
+    toast('⚠️ Storage full!');
+  }
+}
 
 // SYNC FUNCTIONS
 let isSyncing=false;
+// Force immediate sync (bypasses debounce) - use for explicit save actions
+function forceSyncToSheets(){
+  if(syncDebounceTimer){
+    clearTimeout(syncDebounceTimer);
+    syncDebounceTimer=null;
+  }
+  syncToSheets();
+}
 async function plannerAPI(payload,retries=2){
   if(!PLANNER_SCRIPT_URL)throw new Error('No script URL configured');
   for(let attempt=0;attempt<=retries;attempt++){
@@ -1933,6 +1961,14 @@ if(PLANNER_SCRIPT_URL){
 }else{
   setSyncStatus('err','Not configured');
 }
+
+// Force sync before closing/refreshing page
+window.addEventListener('beforeunload',()=>{
+  if(syncDebounceTimer){
+    // If there's pending sync, force it immediately
+    forceSyncToSheets();
+  }
+});
 </script>
 </body>
 </html>

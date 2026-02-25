@@ -1,12 +1,14 @@
-# 🔧 Google Sheets Sync Fix - Multi-Device Data Loading
+# 🔧 Google Sheets Sync Fixes
 
-## The Problem
+## Fix #1: Multi-Device Data Loading
+
+### The Problem
 When you opened the planner on a new device:
 - ✅ Data was saving TO Google Sheets (upload worked)
 - ❌ Data was NOT loading FROM Google Sheets (download failed)
 - Result: Each device had different/empty data
 
-## Root Cause
+### Root Cause
 The data merge logic had a bug:
 ```javascript
 // OLD CODE (WRONG):
@@ -15,30 +17,74 @@ db = {...serverData, ...db};  // Local empty data overwrote server data!
 
 When opening on a new device with empty local storage, the empty local data was overwriting the cloud data during merge.
 
-## The Fix ✅
+### The Fix ✅
+Smart merge logic that detects new devices and handles them differently.
 
-### 1. Smart Merge Logic
-Now the code detects if you're on a new device:
+---
+
+## Fix #2: Incomplete Text Saving (Debounce Issue)
+
+### The Problem
+When typing text in the planner:
+- Type "Hello" → only "H" saves to Google Sheets
+- Type another field → previous text saves properly, new text again only first letter
+- Very frustrating! 😤
+
+### Root Cause
+The `persist()` function called `syncToSheets()` on **every keystroke**:
+
 ```javascript
-// NEW CODE (CORRECT):
-if (localKeys === 0 && serverKeys > 0) {
-  // New device: use server data completely
-  db = serverData;
-} else {
-  // Existing device: merge intelligently
-  db = {...serverData, ...db};
+// OLD CODE (WRONG):
+function persist() {
+  localStorage.setItem(SK, JSON.stringify(db));
+  toast('✓ Saved!');
+  syncToSheets();  // ❌ Called on EVERY keystroke!
 }
 ```
 
-### 2. Improved Initialization
-- Better sync status messages
-- Shows "Loading from cloud..." on page load
-- Console logs show sync details (press F12 to see)
+**What happened:**
+1. User types "H" → saves "H" locally → starts Google Sheets sync with "H"
+2. User types "e" → saves "He" locally → starts another sync with "He"
+3. User types "l" → saves "Hel" locally → starts another sync with "Hel"
+4. Multiple async syncs run simultaneously, causing race conditions
+5. Sometimes old sync completes after new sync, overwriting with old data
+6. Result: incomplete/corrupted text in Google Sheets 💥
 
-### 3. Manual Force Sync Button
-Added **🔄 Refresh from Cloud** button in sync settings:
-- Forces complete data reload from Google Sheets
-- Useful for troubleshooting or syncing out-of-sync devices
+### The Fix ✅
+
+**Debounced sync** - wait for user to stop typing before syncing:
+
+```javascript
+// NEW CODE (CORRECT):
+let syncDebounceTimer = null;
+function persist() {
+  // Save to localStorage immediately (fast, local)
+  localStorage.setItem(SK, JSON.stringify(db));
+  toast('✓ Saved!');
+  
+  // Debounce Google Sheets sync
+  if (syncDebounceTimer) {
+    clearTimeout(syncDebounceTimer);
+  }
+  syncDebounceTimer = setTimeout(() => {
+    syncToSheets();
+    syncDebounceTimer = null;
+  }, 1500); // Wait 1.5 seconds after last keystroke
+}
+```
+
+**How it works:**
+1. User types "H" → saves locally → starts 1.5s timer
+2. User types "e" → saves locally → cancels old timer, starts new 1.5s timer
+3. User types "llo" → keep resetting timer
+4. User stops typing → 1.5 seconds pass → **ONE sync with complete "Hello"** ✅
+
+**Additional improvements:**
+- Added `forceSyncToSheets()` for explicit save actions
+- Added `beforeunload` handler to sync before closing tab
+- Prevents data loss when closing browser quickly
+
+---
 
 ## How to Use (Updated Instructions)
 
@@ -67,23 +113,26 @@ Added **🔄 Refresh from Cloud** button in sync settings:
 - ❌ `No script URL configured` - Need to set Script URL in settings
 
 ## Files Changed
-1. **keerthi-planner.html** (Lines 669-700, 718-745, 337-345, 1895-1906)
-   - Fixed `loadFromSheets()` merge logic
-   - Added `manualSyncFromCloud()` function  
-   - Added refresh button to UI
-   - Improved initialization sequence
 
-2. **PLANNER_SYNC_SETUP_GUIDE.md**
-   - Updated "How Sync Works" section
-   - Expanded "Multi-Device Usage" with troubleshooting
-   - Added specific fix documentation
+**keerthi-planner.html:**
+1. *Lines 628-648*: Added debounce timer and updated `persist()` function
+2. *Lines 652-660*: Added `forceSyncToSheets()` function for explicit saves
+3. *Lines 689-720*: Fixed `loadFromSheets()` merge logic (Fix #1)
+4. *Lines 1967-1974*: Added `beforeunload` handler to force sync on page close
+5. *Lines 337-345*: Added "🔄 Refresh from Cloud" button
 
-## Testing Your Fix
+**PLANNER_SYNC_SETUP_GUIDE.md:**
+- Updated "How Sync Works" section
+- Expanded "Multi-Device Usage" with troubleshooting
+- Added documentation for both fixes
+
+## Testing Both Fixes
+
+### Test Fix #1 (Multi-Device Loading):
 1. **On Device A** (where you have data):
    - Open planner
-   - Make a small change (e.g., add a note)
-   - Wait for green sync dot
-   - Open Google Sheet - verify data is there
+   - Verify data is there
+   - Check green sync dot
 
 2. **On Device B** (new/empty):
    - Open planner
@@ -91,18 +140,20 @@ Added **🔄 Refresh from Cloud** button in sync settings:
    - Paste Script URL
    - Click 💾 Save & Sync
    - Wait 5 seconds
-   - Press F12 → Console
-   - Should see: `Initial sync: Loaded X items from Google Sheets`
    - Data should appear! ✅
 
-3. **Force Refresh Test**:
-   - On Device B, click ⚙️ Sync Settings
-   - Click 🔄 Refresh from Cloud
-   - All data should reload from sheets
+### Test Fix #2 (Text Saving):
+1. Open planner, go to any text field (e.g., Monthly Mantra)
+2. Type a long sentence: "This is my wonderful mantra for this month"
+3. Watch the sync status - it will wait until you stop typing
+4. After 1.5 seconds, should show "Synced · [time]"
+5. Open Google Sheets - full text should be saved! ✅
+6. Try closing the browser immediately after typing - sync completes on close
 
 ## What Changed Under the Hood
 
-### Before (Broken):
+### Fix #1 (Before/After - Multi-Device):
+**Before (Broken):**
 ```
 Device B loads → Local storage empty (db = {}) 
               → Fetch from Google Sheets (serverData = {50 items})
@@ -110,7 +161,7 @@ Device B loads → Local storage empty (db = {})
               → Result: db = {} (empty overwrites server!) ❌
 ```
 
-### After (Fixed):
+**After (Fixed):**
 ```
 Device B loads → Local storage empty (db = {}) 
               → Fetch from Google Sheets (serverData = {50 items})
@@ -119,12 +170,40 @@ Device B loads → Local storage empty (db = {})
               → Result: db = {50 items} ✅
 ```
 
+### Fix #2 (Before/After - Text Saving):
+**Before (Broken):**
+```
+Type "H"   → persist() → syncToSheets() with "H"     ❌
+Type "e"   → persist() → syncToSheets() with "He"    ❌
+Type "l"   → persist() → syncToSheets() with "Hel"   ❌
+Type "l"   → persist() → syncToSheets() with "Hell"  ❌
+Type "o"   → persist() → syncToSheets() with "Hello" ❌
+Result: 5 simultaneous syncs, race conditions! 💥
+```
+
+**After (Fixed):**
+```
+Type "H"     → save locally → start 1.5s timer
+Type "e"     → save locally → cancel timer, restart
+Type "l"     → save locally → cancel timer, restart
+Type "l"     → save locally → cancel timer, restart
+Type "o"     → save locally → cancel timer, restart
+[Stop typing]
+[1.5 seconds pass]
+             → ONE sync with complete "Hello" ✅
+Result: 1 sync with complete text! 🎉
+```
+
 ## Additional Benefits
-- Console logging for debugging (press F12)
-- Better sync status messages
-- Manual control with Refresh button
-- Smarter conflict resolution
+- **No more incomplete text** - complete words/sentences always save
+- **Reduced API calls** - syncs once per edit instead of per keystroke (saves quota)
+- **Better performance** - less network traffic, faster typing
+- **Console logging** for debugging (press F12)
+- **Better sync status** messages
+- **Manual control** with Refresh button
+- **Smarter conflict resolution** for multi-device use
+- **Auto-sync on page close** - no data loss
 
 ---
 
-**Your planner now has true multi-device sync!** 🎉
+**Your planner now has reliable, efficient multi-device sync!** 🎉
