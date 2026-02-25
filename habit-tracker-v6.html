@@ -2500,7 +2500,7 @@ function exportYearlyPDF(){
       // Calculate trend
       const nonNull = chartData.filter(d => d.value !== null).map(d => d.value);
       const trend = nonNull.length >= 2 ? nonNull[nonNull.length - 1] - nonNull[0] : 0;
-      const trendStr = trend > 0 ? '+' + Math.round(trend * 10) / 10 : Math.round(trend * 10) / 10;
+      const trendStr = trend > 0 ? ('+' + (Math.round(trend * 10) / 10).toString()) : (Math.round(trend * 10) / 10).toString();
       
       // Chart title
       doc.setFontSize(12);
