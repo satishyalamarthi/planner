@@ -483,7 +483,7 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min
     <p>Build better habits together</p>
     <div class="sb-sync">
       <div class="sync-dot" id="syncDot"></div>
-      <span id="syncLbl">Not connected</span>
+      <span id="syncLbl" onclick="showDebugInfo()" style="cursor:pointer" title="Click 3x for debug info">Not connected</span>
       <button onclick="loadFromSheets()" id="syncBtn" style="margin-left:auto;background:none;border:none;cursor:pointer;font-size:11px;color:var(--accent);font-weight:600;padding:0" title="Sync with Google Sheets">↻ Sync</button>
     </div>
   </div>
@@ -841,6 +841,55 @@ function setSyncStatus(status, msg) {
   }
 }
 
+// Debug info for mobile - triple click sync label to see
+let debugClickCount = 0;
+let debugClickTimer = null;
+function showDebugInfo() {
+  debugClickCount++;
+  
+  if (debugClickTimer) clearTimeout(debugClickTimer);
+  
+  if (debugClickCount >= 3) {
+    debugClickCount = 0;
+    
+    // Collect debug info
+    const qtyLogCount = Object.keys(qtyLogs).reduce((sum, hid) => sum + Object.keys(qtyLogs[hid] || {}).length, 0);
+    const qtyHabits = habits.filter(h => h.type === 'qty');
+    
+    let debugMsg = `📊 DEBUG INFO\n\n`;
+    debugMsg += `Total habits: ${habits.length}\n`;
+    debugMsg += `Qty habits: ${qtyHabits.length}\n`;
+    debugMsg += `Total qty logs: ${qtyLogCount}\n\n`;
+    
+    if (qtyHabits.length > 0) {
+      debugMsg += `Qty Habits:\n`;
+      qtyHabits.forEach(h => {
+        const logs = qtyLogs[h.id] || {};
+        const entriesCount = Object.keys(logs).length;
+        const todayVal = logs[todayKey];
+        debugMsg += `${h.emoji} ${h.name}:\n`;
+        debugMsg += `  ID: ${h.id}\n`;
+        debugMsg += `  Entries: ${entriesCount}\n`;
+        debugMsg += `  Today (${todayKey}): ${todayVal !== undefined ? todayVal + (h.qtyUnit || '') : 'none'}\n`;
+        if (entriesCount > 0 && entriesCount <= 5) {
+          Object.keys(logs).forEach(date => {
+            debugMsg += `  ${date}: ${logs[date]}${h.qtyUnit || ''}\n`;
+          });
+        }
+        debugMsg += `\n`;
+      });
+    } else {
+      debugMsg += `No quantity habits found.\n`;
+    }
+    
+    alert(debugMsg);
+  }
+  
+  debugClickTimer = setTimeout(() => {
+    debugClickCount = 0;
+  }, 500);
+}
+
 async function api(payload, retries = 2) {
   if (!SCRIPT_URL) throw new Error('No script URL configured');
   
@@ -982,11 +1031,29 @@ async function loadFromSheets() {
     // Save merged data to localStorage for offline use
     saveToLocalStorage();
     saveQtyLogs();
-    setSyncStatus('ok', 'Synced · ' + new Date().toLocaleTimeString());
+    
+    // Count quantity logs for visible status message
+    const qtyLogCount = Object.keys(qtyLogs).reduce((sum, hid) => sum + Object.keys(qtyLogs[hid] || {}).length, 0);
+    const syncMsg = qtyLogCount > 0 
+      ? `Synced · ${new Date().toLocaleTimeString()} · ${qtyLogCount} qty log${qtyLogCount > 1 ? 's' : ''}`
+      : `Synced · ${new Date().toLocaleTimeString()}`;
+    
+    setSyncStatus('ok', syncMsg);
     const configBanner = document.getElementById('configBanner');
     if(configBanner) configBanner.classList.remove('show');
     updateAll();
-    toast('Synced with Google Sheets', '✓', false);
+    
+    // Show detailed toast for mobile debugging
+    const qtyHabitsWithLogs = habits.filter(h => h.type === 'qty' && qtyLogs[h.id] && Object.keys(qtyLogs[h.id]).length > 0);
+    if (qtyLogCount > 0) {
+      const qtyDetails = qtyHabitsWithLogs.map(h => {
+        const todayVal = qtyLogs[h.id][todayKey];
+        return `${h.emoji}${h.name}: ${todayVal !== undefined ? todayVal + (h.qtyUnit || '') + ' today' : Object.keys(qtyLogs[h.id]).length + ' entries'}`;
+      }).join(' | ');
+      toast(`Synced · ${qtyLogCount} qty log${qtyLogCount > 1 ? 's' : ''}: ${qtyDetails}`, '✓', false);
+    } else {
+      toast('Synced with Google Sheets', '✓', false);
+    }
     
     // Try to sync any local-only habits to the server
     for (const habit of localOnlyHabits) {
