@@ -171,7 +171,7 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min
 .wcell{display:flex;align-items:center;justify-content:center;padding:9px 3px;border-left:1px solid var(--border)}
 .wdot{width:24px;height:24px;border-radius:50%;border:2px solid var(--border);background:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:10px;color:transparent;transition:all .15s}
 .wdot:hover:not([disabled]){border-color:var(--accent);background:var(--accent-l)}
-.wdot.done{background:var(--accent);border-color:var(--accent);color:#fff}
+.wdot.done{background:var(--accent);border-color:var(--accent);color:#000;font-weight:700}
 .wdot[disabled]{opacity:.28;cursor:not-allowed}
 .wdelcell{display:flex;align-items:center;justify-content:center;border-left:1px solid var(--border)}
 .wdelbtn{width:24px;height:24px;border-radius:6px;background:none;border:1px solid transparent;color:var(--dim);cursor:pointer;font-size:11px;display:flex;align-items:center;justify-content:center;transition:all .15s}
@@ -432,7 +432,10 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min
 .no-qty-state{text-align:center;padding:60px 20px;color:var(--muted)}
 .no-qty-state .bi{font-size:40px;margin-bottom:12px}
 /* Sidebar charts button */
+.export-btn{background:linear-gradient(135deg,var(--coral),var(--orange));color:#fff;border:none;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:all .15s;box-shadow:0 2px 8px rgba(255,107,107,.3)}
+.export-btn:hover{transform:translateY(-2px);box-shadow:0 4px 12px rgba(255,107,107,.4)}
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 <body>
 <div class="bg-pattern"></div>
@@ -584,7 +587,11 @@ if(window.innerWidth<=768){
 
     <!-- YEARLY -->
     <div class="view" id="view-yearly">
-      <div class="toolbar-row"><div class="sec-title" id="yrTitle">Yearly Overview</div><div class="av-bar" id="yearAvBar"></div></div>
+      <div class="toolbar-row">
+        <div class="sec-title" id="yrTitle">Yearly Overview</div>
+        <button class="export-btn" onclick="exportYearlyPDF()" title="Export year data as PDF">Export PDF</button>
+        <div class="av-bar" id="yearAvBar"></div>
+      </div>
       <div class="yr-tabs">
         <button class="yr-tab active" onclick="switchYrTab('summary',this)">📈 Year Summary</button>
         <button class="yr-tab" onclick="switchYrTab('monthly',this)">🗓️ Monthly Breakdown</button>
@@ -1298,7 +1305,40 @@ function renderMonthly(){
   const wd=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
   let html=`<div class="cal-wdays">${wd.map(d=>`<div class="cal-wday">${d}</div>`).join('')}</div><div class="cal-days">`;
   for(let i=fd-1;i>=0;i--)html+=`<div class="cal-day om"><span class="dn">${prev-i}</span></div>`;
-  for(let day=1;day<=dim;day++){const d=new Date(calYear,calMonth,day),k=dk(d);const isT=k===todayKey,fut=d>today;let dn=hid==='all'?habs.some(h=>isDone(h.id,k)):isDone(hid,k);const click=!fut&&hid!=='all'?`onclick="toggle('${hid}','${k}')"`:'';html+=`<div class="cal-day ${dn?'cdone':''} ${isT?'td':''}" ${click}><span class="dn">${day}</span>${dn?'<div class="ddot"></div>':''}</div>`;}
+  
+  // Get selected habit if viewing single habit
+  const selectedHabit = hid!=='all' ? habits.find(x=>x.id===hid) : null;
+  const isQtyHabit = selectedHabit && selectedHabit.type==='qty';
+  
+  for(let day=1;day<=dim;day++){
+    const d=new Date(calYear,calMonth,day),k=dk(d);
+    const isT=k===todayKey,fut=d>today;
+    
+    let dn=false,qtyVal=null;
+    if(hid==='all'){
+      // Show day as done if any habit is done
+      dn=habs.some(h=>isDone(h.id,k));
+    }else if(isQtyHabit){
+      // For quantity habits, check qtyLogs
+      qtyVal=qtyLogs[hid]&&qtyLogs[hid][k]!==undefined?qtyLogs[hid][k]:null;
+      dn=qtyVal!==null;
+    }else{
+      // For regular habits, check completions
+      dn=isDone(hid,k);
+    }
+    
+    // Create onclick handler based on habit type
+    let click='';
+    if(!fut&&hid!=='all'){
+      if(isQtyHabit){
+        click=`onclick="openQtyModal('${hid}','${k}')"`;
+      }else{
+        click=`onclick="toggle('${hid}','${k}')"`;
+      }
+    }
+    
+    html+=`<div class="cal-day ${dn?'cdone':''} ${isT?'td':''}" ${click}><span class="dn">${day}</span>${dn?'<div class="ddot"></div>':''}</div>`;
+  }
   const rem=42-(fd+dim);for(let i=1;i<=rem;i++)html+=`<div class="cal-day om"><span class="dn">${i}</span></div>`;
   html+='</div>';document.getElementById('cal').innerHTML=html;
 }
@@ -2178,6 +2218,462 @@ setTimeout(() => {
 
 // Auto-sync every 5 minutes when tab is visible
 setInterval(()=>{if(document.visibilityState==='visible'&&SCRIPT_URL)loadFromSheets();}, 5*60*1000);
+
+// ═══════════════════════════════════════════════════════════════
+//  PDF EXPORT FOR YEARLY DATA
+// ═══════════════════════════════════════════════════════════════
+function exportYearlyPDF(){
+  try {
+    if(!window.jspdf){
+      toast('PDF library not loaded','⚠',false);
+      console.error('jsPDF library not available');
+      return;
+    }
+    
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    const yr = today.getFullYear();
+    const habs = filteredHabits(yearAvFilter);
+    
+    if(!habs.length){
+      toast('No habits to export','⚠',false);
+      return;
+    }
+  
+  // PDF Settings
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 20;
+  const lineHeight = 7;
+  let yPos = margin;
+  
+  // Helper to check page break
+  function checkPageBreak(space){
+    if(yPos + space > pageHeight - margin){
+      doc.addPage();
+      yPos = margin;
+      return true;
+    }
+    return false;
+  }
+  
+  // Title
+  doc.setFontSize(22);
+  doc.setTextColor(255, 107, 107);
+  doc.text(`Habit Tracker - ${yr}`, pageWidth/2, yPos, {align:'center'});
+  yPos += 12;
+  
+  // Subtitle
+  doc.setFontSize(11);
+  doc.setTextColor(100, 100, 100);
+  doc.text(`Generated on ${new Date().toLocaleDateString()}`, pageWidth/2, yPos, {align:'center'});
+  yPos += 12;
+  
+  // Calculate yearly stats
+  const yS = new Date(yr,0,1);
+  const yE = new Date(yr,11,31);
+  const pastEnd = new Date(Math.min(+today,+yE));
+  const activeDays = new Set();
+  habs.forEach(h=>{
+    if(completions[h.id])Object.keys(completions[h.id]).filter(k=>k.startsWith(yr+'')).forEach(k=>activeDays.add(k));
+    if(h.type==='qty'&&qtyLogs[h.id])Object.keys(qtyLogs[h.id]).filter(k=>k.startsWith(yr+'')).forEach(k=>activeDays.add(k));
+  });
+  
+  // Overall stats box
+  doc.setFillColor(240, 240, 255);
+  doc.roundedRect(margin, yPos, pageWidth - 2*margin, 25, 3, 3, 'F');
+  doc.setFontSize(10);
+  doc.setTextColor(60, 60, 60);
+  
+  const hStats = habs.map(h=>{
+    const done = countRange(h.id, yS, pastEnd);
+    const days = Math.round((pastEnd - yS)/86400000) + 1;
+    let tgt = h.freq==='daily' ? days : (h.freq==='custom' ? (h.cpPeriod==='week' ? Math.round(days/7)*Number(h.cpN) : 12*Number(h.cpN)) : done);
+    return {h, done, target: tgt};
+  });
+  
+  const totD = hStats.reduce((s,x)=>s+x.done, 0);
+  const totT = hStats.reduce((s,x)=>s+x.target, 0);
+  const yrPct = totT ? Math.round(totD/totT*100) : 0;
+  
+  doc.text(`Total Habits: ${habs.length}`, margin + 5, yPos + 8);
+  doc.text(`Total Completions: ${totD}`, margin + 5, yPos + 15);
+  doc.text(`Overall Rate: ${yrPct}%`, margin + 5, yPos + 22);
+  doc.text(`Active Days: ${activeDays.size}`, margin + 70, yPos + 8);
+  doc.text(`Best Streak: ${bestStreak()} days`, margin + 70, yPos + 15);
+  yPos += 32;
+  
+  // Separate habits by type
+  const checkHabits = habs.filter(h => h.type !== 'qty');
+  const qtyHabits = habs.filter(h => h.type === 'qty');
+  
+  // Current month dates
+  const currMonth = today.getMonth();
+  const currMonthStart = new Date(yr, currMonth, 1);
+  const currMonthEnd = new Date(Math.min(+today, new Date(yr, currMonth + 1, 0)));
+  
+  // ===== CHECK HABITS TABLE =====
+  if(checkHabits.length > 0){
+    checkPageBreak(35);
+    doc.setFontSize(14);
+    doc.setTextColor(107, 203, 119);
+    doc.text('Check Habits', margin, yPos);
+    yPos += 8;
+    
+    // Table header
+    doc.setFillColor(45, 53, 97);
+    doc.rect(margin, yPos, pageWidth - 2*margin, 10, 'F');
+    doc.setFontSize(10);
+    doc.setFont(undefined, 'bold');
+    doc.setTextColor(255, 255, 255);
+    doc.text('Name', margin + 2, yPos + 6.5);
+    doc.text('Habit', margin + 35, yPos + 6.5);
+    doc.text('Monthly Count', margin + 100, yPos + 6.5);
+    doc.text('Yearly Count', margin + 140, yPos + 6.5);
+    doc.setFont(undefined, 'normal');
+    yPos += 12;
+    
+    // Habit rows
+    doc.setTextColor(60, 60, 60);
+    checkHabits.forEach((h, idx)=>{
+      checkPageBreak(lineHeight);
+      
+      // Calculate monthly and yearly counts
+      const monthlyDone = countRange(h.id, currMonthStart, currMonthEnd);
+      const monthlyDays = Math.round((currMonthEnd - currMonthStart)/86400000) + 1;
+      const monthlyTarget = h.freq==='daily' ? monthlyDays : (h.freq==='custom' ? 
+        (h.cpPeriod==='week' ? Math.round(monthlyDays/7)*Number(h.cpN) : Number(h.cpN)) : monthlyDone);
+      
+      const yearlyDone = countRange(h.id, yS, pastEnd);
+      const yearlyDays = Math.round((pastEnd - yS)/86400000) + 1;
+      const yearlyTarget = h.freq==='daily' ? yearlyDays : (h.freq==='custom' ? 
+        (h.cpPeriod==='week' ? Math.round(yearlyDays/7)*Number(h.cpN) : 12*Number(h.cpN)) : yearlyDone);
+      
+      // Alternate row colors
+      if(idx % 2 === 0){
+        doc.setFillColor(250, 250, 250);
+        doc.rect(margin, yPos - 5, pageWidth - 2*margin, 7, 'F');
+      }
+      
+      doc.setFontSize(9);
+      // Name (assignee names)
+      const ids = Array.isArray(h.assignees) ? h.assignees : (h.assignee ? [h.assignee] : []);
+      const names = ids.map(id => {
+        const a = getAv(id);
+        return a ? a.name : id;
+      }).join(', ') || 'All';
+      doc.text(names, margin + 2, yPos);
+      // Habit name
+      doc.text(h.name, margin + 35, yPos);
+      // Monthly count
+      doc.text(`${monthlyDone}/${monthlyTarget}`, margin + 100, yPos);
+      // Yearly count
+      doc.text(`${yearlyDone}/${yearlyTarget}`, margin + 140, yPos);
+      
+      yPos += lineHeight;
+    });
+    yPos += 5;
+  }
+  
+  // ===== QUANTITY HABITS TABLE =====
+  if(qtyHabits.length > 0){
+    checkPageBreak(35);
+    doc.setFontSize(14);
+    doc.setTextColor(199, 125, 255);
+    doc.text('Quantity Habits', margin, yPos);
+    yPos += 8;
+    
+    // Table header
+    doc.setFillColor(45, 53, 97);
+    doc.rect(margin, yPos, pageWidth - 2*margin, 10, 'F');
+    doc.setFontSize(9);
+    doc.setFont(undefined, 'bold');
+    doc.setTextColor(255, 255, 255);
+    doc.text('Name', margin + 2, yPos + 6.5);
+    doc.text('Habit', margin + 28, yPos + 6.5);
+    doc.text('Monthly (Avg/Min/Max)', margin + 85, yPos + 6.5);
+    doc.text('Yearly (Avg/Min/Max)', margin + 140, yPos + 6.5);
+    doc.setFont(undefined, 'normal');
+    yPos += 12;
+    
+    // Habit rows
+    doc.setTextColor(60, 60, 60);
+    qtyHabits.forEach((h, idx)=>{
+      checkPageBreak(lineHeight);
+      
+      // Get all values for this habit
+      const allLogs = qtyLogs[h.id] || {};
+      
+      // Monthly values
+      const monthlyVals = Object.keys(allLogs)
+        .filter(k => {
+          const d = new Date(k);
+          return d >= currMonthStart && d <= currMonthEnd;
+        })
+        .map(k => allLogs[k]);
+      
+      const mAvg = monthlyVals.length > 0 ? (monthlyVals.reduce((s,v)=>s+v,0)/monthlyVals.length).toFixed(1) : '-';
+      const mMin = monthlyVals.length > 0 ? Math.min(...monthlyVals).toFixed(1) : '-';
+      const mMax = monthlyVals.length > 0 ? Math.max(...monthlyVals).toFixed(1) : '-';
+      
+      // Yearly values
+      const yearlyVals = Object.keys(allLogs)
+        .filter(k => {
+          const d = new Date(k);
+          return d >= yS && d <= pastEnd;
+        })
+        .map(k => allLogs[k]);
+      
+      const yAvg = yearlyVals.length > 0 ? (yearlyVals.reduce((s,v)=>s+v,0)/yearlyVals.length).toFixed(1) : '-';
+      const yMin = yearlyVals.length > 0 ? Math.min(...yearlyVals).toFixed(1) : '-';
+      const yMax = yearlyVals.length > 0 ? Math.max(...yearlyVals).toFixed(1) : '-';
+      
+      // Alternate row colors
+      if(idx % 2 === 0){
+        doc.setFillColor(250, 250, 250);
+        doc.rect(margin, yPos - 5, pageWidth - 2*margin, 7, 'F');
+      }
+      
+      doc.setFontSize(9);
+      // Name (assignee names)
+      const ids = Array.isArray(h.assignees) ? h.assignees : (h.assignee ? [h.assignee] : []);
+      const names = ids.map(id => {
+        const a = getAv(id);
+        return a ? a.name : id;
+      }).join(', ') || 'All';
+      doc.text(names, margin + 2, yPos);
+      // Habit name with unit
+      const habitText = h.qtyUnit ? `${h.name} (${h.qtyUnit})` : h.name;
+      doc.text(habitText, margin + 28, yPos);
+      // Monthly stats
+      doc.text(`${mAvg}/${mMin}/${mMax}`, margin + 85, yPos);
+      // Yearly stats
+      doc.text(`${yAvg}/${yMin}/${yMax}`, margin + 145, yPos);
+      
+      yPos += lineHeight;
+    });
+    yPos += 5;
+  }
+  
+  // ===== QUANTITY HABITS CHARTS =====
+  if(qtyHabits.length > 0){
+    // Check if any quantity habits have data
+    const habitsWithData = qtyHabits.filter(h => {
+      const logs = qtyLogs[h.id] || {};
+      return Object.values(logs).filter(v => v !== null && v !== undefined).length > 0;
+    });
+    
+    if(habitsWithData.length > 0){
+      doc.addPage();
+      yPos = margin;
+      doc.setFontSize(16);
+      doc.setTextColor(199, 125, 255);
+      doc.text('Quantity Habits - Progress Charts', margin, yPos);
+      yPos += 12;
+    
+      habitsWithData.forEach((h, idx) => {
+        const logs = qtyLogs[h.id] || {};
+        const allLoggedValues = Object.values(logs).filter(v => v !== null && v !== undefined);
+        
+        // Check if we need a new page
+        checkPageBreak(80);
+      
+      // Calculate stats
+      const total = allLoggedValues.reduce((s, v) => s + v, 0);
+      const avg = Math.round(total / allLoggedValues.length * 10) / 10;
+      const maxV = Math.round(Math.max(...allLoggedValues) * 10) / 10;
+      const minV = Math.round(Math.min(...allLoggedValues) * 10) / 10;
+      
+      // Get last 30 days of data
+      const now = new Date(today);
+      const chartData = [];
+      for(let d = 29; d >= 0; d--) {
+        const date = new Date(now);
+        date.setDate(now.getDate() - d);
+        const dateStr = date.getFullYear() + '-' + 
+                       String(date.getMonth() + 1).padStart(2, '0') + '-' + 
+                       String(date.getDate()).padStart(2, '0');
+        const value = logs[dateStr] !== undefined ? logs[dateStr] : null;
+        chartData.push({ date: date.getDate(), value });
+      }
+      
+      // Calculate trend
+      const nonNull = chartData.filter(d => d.value !== null).map(d => d.value);
+      const trend = nonNull.length >= 2 ? nonNull[nonNull.length - 1] - nonNull[0] : 0;
+      const trendStr = trend > 0 ? '+' + Math.round(trend * 10) / 10 : Math.round(trend * 10) / 10;
+      
+      // Chart title
+      doc.setFontSize(12);
+      doc.setTextColor(60, 60, 60);
+      doc.setFont(undefined, 'bold');
+      const unitText = h.qtyUnit ? ` (${h.qtyUnit})` : '';
+      doc.text(`${h.name}${unitText}`, margin, yPos);
+      doc.setFont(undefined, 'normal');
+      yPos += 8;
+      
+      // Stats boxes
+      const statBoxW = 35;
+      const statBoxH = 12;
+      const statBoxGap = 3;
+      
+      // Avg box
+      doc.setFillColor(240, 248, 255);
+      doc.roundedRect(margin, yPos, statBoxW, statBoxH, 2, 2, 'F');
+      doc.setFontSize(8);
+      doc.setTextColor(100, 100, 100);
+      doc.text('AVG', margin + 2, yPos + 4);
+      doc.setFontSize(10);
+      doc.setFont(undefined, 'bold');
+      doc.setTextColor(60, 60, 60);
+      doc.text(avg.toString(), margin + 2, yPos + 9);
+      doc.setFont(undefined, 'normal');
+      
+      // Max box
+      doc.setFillColor(240, 255, 240);
+      doc.roundedRect(margin + statBoxW + statBoxGap, yPos, statBoxW, statBoxH, 2, 2, 'F');
+      doc.setFontSize(8);
+      doc.setTextColor(100, 100, 100);
+      doc.text('MAX', margin + statBoxW + statBoxGap + 2, yPos + 4);
+      doc.setFontSize(10);
+      doc.setFont(undefined, 'bold');
+      doc.setTextColor(107, 203, 119);
+      doc.text(maxV.toString(), margin + statBoxW + statBoxGap + 2, yPos + 9);
+      doc.setFont(undefined, 'normal');
+      
+      // Min box
+      doc.setFillColor(255, 245, 240);
+      doc.roundedRect(margin + (statBoxW + statBoxGap) * 2, yPos, statBoxW, statBoxH, 2, 2, 'F');
+      doc.setFontSize(8);
+      doc.setTextColor(100, 100, 100);
+      doc.text('MIN', margin + (statBoxW + statBoxGap) * 2 + 2, yPos + 4);
+      doc.setFontSize(10);
+      doc.setFont(undefined, 'bold');
+      doc.setTextColor(255, 154, 60);
+      doc.text(minV.toString(), margin + (statBoxW + statBoxGap) * 2 + 2, yPos + 9);
+      doc.setFont(undefined, 'normal');
+      
+      // Trend box
+      const trendColor = trend > 0 ? [107, 203, 119] : (trend < 0 ? [255, 107, 107] : [150, 150, 150]);
+      doc.setFillColor(250, 250, 250);
+      doc.roundedRect(margin + (statBoxW + statBoxGap) * 3, yPos, statBoxW, statBoxH, 2, 2, 'F');
+      doc.setFontSize(8);
+      doc.setTextColor(100, 100, 100);
+      doc.text('TREND', margin + (statBoxW + statBoxGap) * 3 + 2, yPos + 4);
+      doc.setFontSize(10);
+      doc.setFont(undefined, 'bold');
+      doc.setTextColor(...trendColor);
+      doc.text(trendStr, margin + (statBoxW + statBoxGap) * 3 + 2, yPos + 9);
+      doc.setFont(undefined, 'normal');
+      
+      yPos += statBoxH + 6;
+      
+      // Draw bar chart (last 30 days)
+      const chartW = pageWidth - 2 * margin;
+      const chartH = 40;
+      const barW = chartW / 30 - 1;
+      const maxChartVal = Math.max(...chartData.map(d => d.value || 0));
+      
+      // Chart background
+      doc.setDrawColor(230, 230, 230);
+      doc.setLineWidth(0.1);
+      doc.line(margin, yPos + chartH, margin + chartW, yPos + chartH); // x-axis
+      
+      // Draw bars
+      chartData.forEach((d, i) => {
+        if(d.value !== null && d.value > 0) {
+          const barH = (d.value / maxChartVal) * chartH;
+          const barX = margin + i * (barW + 1);
+          doc.setFillColor(199, 125, 255);
+          doc.rect(barX, yPos + chartH - barH, barW, barH, 'F');
+        }
+      });
+      
+      // X-axis labels (show every 5 days)
+      doc.setFontSize(7);
+      doc.setTextColor(120, 120, 120);
+      chartData.forEach((d, i) => {
+        if(i % 5 === 0 || i === chartData.length - 1) {
+          const labelX = margin + i * (barW + 1) + barW / 2;
+          doc.text(d.date.toString(), labelX, yPos + chartH + 4, { align: 'center' });
+        }
+      });
+      
+      yPos += chartH + 10;
+    });
+    }
+  }
+  
+  // Monthly breakdown section
+  checkPageBreak(40);
+  yPos += 5;
+  doc.setFontSize(14);
+  doc.setTextColor(199, 125, 255);
+  doc.text('Monthly Progress', margin, yPos);
+  yPos += 8;
+  
+  const mFull = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  
+  mFull.forEach((m, mi)=>{
+    checkPageBreak(20);
+    
+    const dim = new Date(yr, mi+1, 0).getDate();
+    const mS = new Date(yr, mi, 1);
+    const mE = new Date(yr, mi, dim);
+    const mPE = new Date(Math.min(+today, +mE));
+    const isFut = mS > today;
+    const pD = isFut ? 0 : (today <= mE ? today.getDate() : dim);
+    
+    if(isFut) return; // Skip future months
+    
+    const ms = habs.map(h=>{
+      const done = countRange(h.id, mS, mPE);
+      let tgt = h.freq==='daily' ? pD : (h.freq==='custom' ? (h.cpPeriod==='week' ? Math.min(Math.round(pD/7)*Number(h.cpN), pD) : Number(h.cpN)) : done);
+      return {done, target: tgt};
+    });
+    
+    const mTD = ms.reduce((s,x)=>s+x.done, 0);
+    const mTT = ms.reduce((s,x)=>s+x.target, 0);
+    const mP = mTT ? Math.round(mTD/mTT*100) : 0;
+    
+    // Month header
+    doc.setFontSize(10);
+    doc.setTextColor(60, 60, 60);
+    doc.setFont(undefined, 'bold');
+    doc.text(m, margin + 2, yPos);
+    doc.setFont(undefined, 'normal');
+    doc.setFontSize(9);
+    doc.text(`${mTD}/${mTT} completions`, margin + 50, yPos);
+    
+    // Progress bar for month
+    const barW = 60;
+    const barX = pageWidth - margin - barW - 15;
+    doc.setDrawColor(200, 200, 200);
+    doc.rect(barX, yPos - 3.5, barW, 5);
+    if(mP > 0){
+      if(mP >= 80) doc.setFillColor(107, 203, 119);
+      else if(mP >= 50) doc.setFillColor(255, 154, 60);
+      else doc.setFillColor(255, 107, 107);
+      doc.rect(barX, yPos - 3.5, barW * mP / 100, 5, 'F');
+    }
+    doc.text(`${mP}%`, pageWidth - margin - 10, yPos, {align: 'right'});
+    
+    yPos += 8;
+  });
+  
+  // Footer on last page
+  doc.setFontSize(8);
+  doc.setTextColor(150, 150, 150);
+  doc.text('Generated by Ritual Habit Tracker', pageWidth/2, pageHeight - 10, {align:'center'});
+  
+  // Save PDF
+  doc.save(`Habit-Tracker-${yr}-${new Date().toISOString().split('T')[0]}.pdf`);
+  toast('PDF exported successfully!','✓',true);
+  
+  } catch(err) {
+    console.error('PDF Export Error:', err);
+    toast('Failed to export PDF: ' + err.message, '⚠', false);
+  }
+}
 </script>
 </body>
 </html>
