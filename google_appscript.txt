@@ -466,7 +466,7 @@ function saveMoodData(moods) {
   // Use dedicated MoodTracker sheet
   const sheet = getOrCreateSheet(SHEET_NAMES.moodTracker);
   
-  // Clear all existing data (more reliable approach)
+  // Clear all existing data (more reliable āāapproach)
   const lastRow = sheet.getLastRow();
   if (lastRow > 1) {
     sheet.deleteRows(2, lastRow - 1);

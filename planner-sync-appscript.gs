@@ -18,14 +18,29 @@
 // Main entry point for POST requests
 function doPost(e) {
   try {
+    Logger.log('=== NEW REQUEST ===');
+    Logger.log('Timestamp: ' + new Date().toISOString());
+    
     const payload = JSON.parse(e.postData.contents);
     const action = payload.action;
+    Logger.log('Action: ' + action);
     
+    if (action === 'saveAll') {
+      const dataKeys = payload.data ? Object.keys(payload.data) : [];
+      Logger.log('saveAll request with ' + dataKeys.length + ' keys');
+      Logger.log('Data keys: ' + dataKeys.join(', '));
+    }
+    
+    let result;
     switch(action) {
       case 'getAll':
-        return response(getAllPlannerData());
+        result = getAllPlannerData();
+        Logger.log('getAll returned ' + Object.keys(result).length + ' keys');
+        return response(result);
       case 'saveAll':
-        return response(saveAllPlannerData(payload.data));
+        result = saveAllPlannerData(payload.data);
+        Logger.log('saveAll completed: ' + JSON.stringify(result));
+        return response(result);
       case 'saveSingle':
         return response(saveSingleEntry(payload.key, payload.value));
       case 'toggleCompletion':
@@ -39,9 +54,12 @@ function doPost(e) {
       case 'saveMoodData':
         return response(saveKeyData('ritual_moods', payload.moods));
       default:
+        Logger.log('Unknown action: ' + action);
         return response(null, 'Unknown action: ' + action);
     }
   } catch(err) {
+    Logger.log('ERROR: ' + err.toString());
+    Logger.log('Stack: ' + err.stack);
     return response(null, 'Server error: ' + err.toString());
   }
 }
@@ -109,28 +127,47 @@ function getAllPlannerData() {
 
 // Save all planner data to the sheet
 function saveAllPlannerData(data) {
+  Logger.log('▶ saveAllPlannerData called');
+  
   const sheet = getSheet();
   const timestamp = new Date().toISOString();
   
+  Logger.log('✓ Sheet obtained: PlannerData');
+  
   // Clear existing data (except header)
   const lastRow = sheet.getLastRow();
+  Logger.log('Current last row: ' + lastRow);
+  
   if (lastRow > 1) {
     sheet.getRange(2, 1, lastRow - 1, 3).clearContent();
+    Logger.log('✓ Cleared ' + (lastRow - 1) + ' existing rows');
   }
   
   // Convert data object to rows
   const rows = [];
-  Object.keys(data).forEach(key => {
+  const dataKeys = Object.keys(data || {});
+  Logger.log('Processing ' + dataKeys.length + ' data keys');
+  
+  dataKeys.forEach(key => {
     const value = data[key];
     const valueStr = JSON.stringify(value);
     rows.push([key, valueStr, timestamp]);
   });
   
+  Logger.log('✓ Prepared ' + rows.length + ' rows');
+  
   if (rows.length > 0) {
     sheet.getRange(2, 1, rows.length, 3).setValues(rows);
+    Logger.log('✓ Wrote ' + rows.length + ' rows to sheet');
+    Logger.log('Sample keys: ' + dataKeys.slice(0, 5).join(', '));
+  } else {
+    Logger.log('⚠ No data to save!');
   }
   
-  return { saved: rows.length, timestamp: timestamp };
+  const result = { saved: rows.length, timestamp: timestamp };
+  Logger.log('✓ Returning result: ' + JSON.stringify(result));
+  
+  return result;
 }
 
 // Save a single entry (for incremental updates)

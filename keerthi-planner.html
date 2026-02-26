@@ -181,7 +181,7 @@ textarea:focus,input[type=text]:focus,input[type=number]:focus{border-color:var(
 .sgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:11px}
 .stic{border-radius:13px;padding:13px;min-height:120px;position:relative;transform:rotate(var(--rot,0deg));transition:transform .2s;background:linear-gradient(135deg,rgba(255,217,61,.15),rgba(255,154,60,.15));border:2px solid rgba(255,217,61,.3)}
 .stic:hover{transform:rotate(0deg) scale(1.02);z-index:2}
-.stic textarea{background:transparent;border:none;resize:none;font-size:.83rem;height:82px;padding:3px}
+.stic textarea{background:transparent;border:none;resize:none;font-size:.83rem;height:82px;padding:3px;color:#1a1f2e}
 .stic textarea:focus{border-color:transparent}
 .sdel{position:absolute;top:7px;right:7px;background:rgba(0,0,0,.1);border:none;width:21px;height:21px;border-radius:50%;cursor:pointer;font-size:.6rem;display:flex;align-items:center;justify-content:center}
 /* EVENTS */
@@ -680,18 +680,25 @@ function forceSyncToSheets(){
 }
 async function plannerAPI(payload,retries=2){
   if(!PLANNER_SCRIPT_URL)throw new Error('No script URL configured');
+  console.log('📡 Making API request:', payload.action);
+  if(payload.action==='saveAll'){
+    console.log('📤 Sending keys:', Object.keys(payload.data||{}));
+  }
   for(let attempt=0;attempt<=retries;attempt++){
     try{
       const timeoutPromise=new Promise((_,reject)=>setTimeout(()=>reject(new Error('Request timeout')),15000));
       const urlWithCache=PLANNER_SCRIPT_URL+(PLANNER_SCRIPT_URL.includes('?')?'&':'?')+'_='+Date.now();
+      console.log('🌐 Fetching:', urlWithCache.substring(0,100)+'...');
       const fetchPromise=fetch(urlWithCache,{method:'POST',body:JSON.stringify(payload),headers:{'Content-Type':'text/plain'}});
       const res=await Promise.race([fetchPromise,timeoutPromise]);
+      console.log('📥 Response status:', res.status, res.statusText);
       const json=await res.json();
+      console.log('📦 Response JSON:', json);
       if(!json.ok)throw new Error(json.error||'API error');
       return json.data;
     }catch(e){
       if(attempt===retries)throw e;
-      console.warn(`API attempt ${attempt+1} failed, retrying...`,e.message);
+      console.warn(`⚠️ API attempt ${attempt+1} failed, retrying...`,e.message);
       await new Promise(resolve=>setTimeout(resolve,1000*(attempt+1)));
     }
   }
@@ -705,12 +712,19 @@ function setSyncStatus(status,text){
 async function syncToSheets(){
   if(!PLANNER_SCRIPT_URL||isSyncing)return;
   isSyncing=true;
+  console.log('🔄 Starting sync to sheets...');
+  console.log('📊 Data keys to sync:', Object.keys(db));
+  console.log('📊 Total entries:', Object.keys(db).length);
+  console.log('🌐 Script URL:', PLANNER_SCRIPT_URL);
   try{
-    await plannerAPI({action:'saveAll',data:db});
+    const result=await plannerAPI({action:'saveAll',data:db});
+    console.log('✅ Sync successful:', result);
     setSyncStatus('ok','Synced · '+new Date().toLocaleTimeString());
+    toast('✓ Synced '+result.saved+' entries');
   }catch(e){
-    console.error('Sync failed:',e);
+    console.error('❌ Sync failed:',e);
     setSyncStatus('err','Sync failed');
+    toast('⚠️ Sync failed: '+e.message);
   }finally{
     isSyncing=false;
   }
@@ -2021,6 +2035,25 @@ if(PLANNER_SCRIPT_URL){
     setSyncStatus('err','Sync failed');
   });
 }else{
+  setSyncStatus('err','Not configured');
+}
+
+// Debug helpers - type these in the browser console
+window.debugPlanner = function() {
+  console.log('=== PLANNER DEBUG INFO ===');
+  console.log('Storage Key:', SK);
+  console.log('Script URL configured:', !!PLANNER_SCRIPT_URL);
+  console.log('Script URL:', PLANNER_SCRIPT_URL || 'Not set');
+  console.log('Database keys:', Object.keys(db).length);
+  console.log('Sample keys:', Object.keys(db).slice(0, 20));
+  console.log('Current year:', cY, 'Current month:', cM);
+  console.log('Is syncing:', isSyncing);
+  console.log('\nTo manually sync, run: forceSyncToSheets()');
+  console.log('To reload from sheets, run: loadFromSheets()');
+  return { db, keys: Object.keys(db), totalEntries: Object.keys(db).length };
+};
+
+console.log('💡 Type debugPlanner() in console for debug info');
   setSyncStatus('err','Not configured');
 }
 
