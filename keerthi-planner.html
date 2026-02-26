@@ -630,13 +630,21 @@ function load(){try{db=JSON.parse(localStorage.getItem(SK)||'{}')}catch(e){db={}
 
 // Helper function to get assignee names from habit
 function getAssigneeNames(habit){
-  if(!habit)return'';
+  if(!habit){
+    console.log('getAssigneeNames: No habit provided');
+    return'';
+  }
+  console.log('getAssigneeNames for habit:', habit.name, '| assignees:', habit.assignees, '| assignee:', habit.assignee);
   const ids=Array.isArray(habit.assignees)?habit.assignees:(habit.assignee?[habit.assignee]:[]);
+  console.log('Extracted IDs:', ids);
   if(!ids.length)return'';
-  return ids.map(id=>{
+  const names=ids.map(id=>{
     const a=ASSIGNEES.find(x=>x.id===id);
+    console.log('Looking for assignee ID:', id, '| Found:', a);
     return a?a.name:id;
   }).join(', ');
+  console.log('Generated names:', names);
+  return names;
 }
 
 // Debounce timer for Google Sheets sync
@@ -1674,7 +1682,9 @@ function getHabitSummary(){
       }
       if(target>0||qtyValues.length>0){
         const rate=target>0?Math.round(done/target*100):0;
+        console.log('Processing habit:', h.name, '| Has assignees:', !!h.assignees, '| Has assignee:', !!h.assignee);
         const assigneeNames=getAssigneeNames(h);
+        console.log('Assignee names result:', assigneeNames);
         const stats={name:h.name,emoji:h.emoji||'✓',done,target,rate,type:h.type,unit:h.qtyUnit||'',assignee:assigneeNames};
         if(h.type==='qty'&&qtyValues.length>0){
           stats.max=Math.max(...qtyValues);
@@ -1682,6 +1692,7 @@ function getHabitSummary(){
           stats.avg=Math.round(qtyValues.reduce((a,b)=>a+b,0)/qtyValues.length*10)/10;
           stats.qtyCount=qtyValues.length;
         }
+        console.log('Created stats:', stats);
         habitStats.push(stats);
         totalDone+=done;totalTarget+=target;
       }
@@ -1693,14 +1704,17 @@ function getHabitSummary(){
     else if(overallRate>=60)summary+=`💪 Solid effort this month: ${overallRate}% completion\n\n`;
     else summary+=`Keep going! ${overallRate}% completion this month\n\n`;
     summary+=`📊 All Habits:\n`;
+    console.log('Building summary from habitStats:', habitStats);
     habitStats.forEach(h=>{
       const assigneeText=h.assignee?` [${h.assignee}]`:'';
+      console.log('Summary line for:', h.name, '| Assignee:', h.assignee, '| Text:', assigneeText);
       if(h.type==='qty'){
         summary+=`${h.emoji} ${h.name}${assigneeText}: Max ${h.max}, Min ${h.min}, Avg ${h.avg}${h.unit} (${h.qtyCount} days)\n`;
       }else{
         summary+=`${h.emoji} ${h.name}${assigneeText}: ${h.done}/${h.target} days\n`;
       }
     });
+    console.log('Final summary text:', summary);
     
     // Add mood tracking summary
     try{
