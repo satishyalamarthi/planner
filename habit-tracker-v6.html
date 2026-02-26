@@ -860,22 +860,40 @@ function showDebugInfo() {
     // Collect debug info
     const qtyLogCount = Object.keys(qtyLogs).reduce((sum, hid) => sum + Object.keys(qtyLogs[hid] || {}).length, 0);
     const qtyHabits = habits.filter(h => h.type === 'qty');
+    const periodCount = Object.keys(periodDates).length;
+    const moodCount = Object.values(moods).reduce((sum, userMoods) => sum + Object.keys(userMoods).length, 0);
     
     let debugMsg = `📊 DEBUG INFO\n\n`;
     debugMsg += `Total habits: ${habits.length}\n`;
     debugMsg += `Qty habits: ${qtyHabits.length}\n`;
     debugMsg += `Total qty logs: ${qtyLogCount}\n`;
+    debugMsg += `Period dates: ${periodCount}\n`;
+    debugMsg += `Mood entries: ${moodCount}\n`;
+    debugMsg += `  - Satish: ${Object.keys(moods.satish || {}).length}\n`;
+    debugMsg += `  - KeerthiSri: ${Object.keys(moods.keerthisri || {}).length}\n`;
+    debugMsg += `  - Geetanath: ${Object.keys(moods.geetanath || {}).length}\n\n`;
     
     // Check what server sent
     if (lastServerResponse) {
       const serverQtyLogCount = lastServerResponse.qtyLogs 
         ? Object.keys(lastServerResponse.qtyLogs).reduce((sum, hid) => sum + Object.keys(lastServerResponse.qtyLogs[hid] || {}).length, 0)
         : 0;
-      debugMsg += `Server sent qty logs: ${serverQtyLogCount}\n`;
-      debugMsg += `Server qtyLogs property exists: ${lastServerResponse.qtyLogs !== undefined}\n`;
+      const serverPeriodCount = lastServerResponse.periodDates ? Object.keys(lastServerResponse.periodDates).length : 0;
+      const serverMoodCount = lastServerResponse.moods 
+        ? Object.values(lastServerResponse.moods).reduce((sum, userMoods) => sum + Object.keys(userMoods).length, 0)
+        : 0;
+      debugMsg += `SERVER DATA:\n`;
+      debugMsg += `Server qty logs: ${serverQtyLogCount}\n`;
+      debugMsg += `Server period dates: ${serverPeriodCount}\n`;
+      debugMsg += `Server mood entries: ${serverMoodCount}\n`;
+      debugMsg += `Server has periodDates: ${lastServerResponse.periodDates !== undefined}\n`;
+      debugMsg += `Server has moods: ${lastServerResponse.moods !== undefined}\n\n`;
     }
     
-    debugMsg += `LocalStorage qty logs: ${localStorage.getItem('ritual_qtylogs') || 'empty'}\n\n`;
+    debugMsg += `LocalStorage:\n`;
+    debugMsg += `- qty logs: ${localStorage.getItem('ritual_qtylogs') ? 'exists' : 'empty'}\n`;
+    debugMsg += `- period dates: ${localStorage.getItem('ritual_period_dates') ? 'exists' : 'empty'}\n`;
+    debugMsg += `- moods: ${localStorage.getItem('ritual_moods') ? 'exists' : 'empty'}\n\n`;
     
     if (qtyHabits.length > 0) {
       debugMsg += `Qty Habits:\n`;
@@ -2172,14 +2190,24 @@ async function savePeriodData(){
   }
 }
 
-function togglePeriodDate(dateKey){
+async function togglePeriodDate(dateKey){
   if(periodDates[dateKey]){
     delete periodDates[dateKey];
   } else {
     periodDates[dateKey] = true;
   }
-  savePeriodData();
-  renderPeriodCalendar();
+  renderPeriodCalendar(); // Update UI immediately
+  try {
+    await savePeriodData();
+    if(SCRIPT_URL) {
+      setSyncStatus('ok', 'Period synced · ' + new Date().toLocaleTimeString());
+    }
+  } catch(e) {
+    console.error('Failed to sync period:', e);
+    if(SCRIPT_URL) {
+      toast('⚠ Period sync failed', '⚠', false);
+    }
+  }
 }
 
 function renderPeriodCalendar(){
@@ -2335,22 +2363,42 @@ function goToMoodToday(){
   renderMoodPicker();
 }
 
-function setMood(moodId){
+async function setMood(moodId){
   if(!moods[currentMoodUser]) moods[currentMoodUser] = {};
   const dateKey = dk(currentMoodDate);
   moods[currentMoodUser][dateKey] = moodId;
-  saveMoodData();
-  renderMoodPicker();
+  renderMoodPicker(); // Update UI immediately
   renderMoodHistory();
+  try {
+    await saveMoodData();
+    if(SCRIPT_URL) {
+      setSyncStatus('ok', 'Mood synced · ' + new Date().toLocaleTimeString());
+    }
+  } catch(e) {
+    console.error('Failed to sync mood:', e);
+    if(SCRIPT_URL) {
+      toast('⚠ Mood sync failed', '⚠', false);
+    }
+  }
 }
 
-function deleteMood(userId, dateKey){
+async function deleteMood(userId, dateKey){
   if(moods[userId] && moods[userId][dateKey]){
     delete moods[userId][dateKey];
-    saveMoodData();
     if(userId === currentMoodUser){
-      renderMoodHistory();
+      renderMoodHistory(); // Update UI immediately
       renderMoodPicker();
+    }
+    try {
+      await saveMoodData();
+      if(SCRIPT_URL) {
+        setSyncStatus('ok', 'Mood synced · ' + new Date().toLocaleTimeString());
+      }
+    } catch(e) {
+      console.error('Failed to sync mood deletion:', e);
+      if(SCRIPT_URL) {
+        toast('⚠ Mood sync failed', '⚠', false);
+      }
     }
   }
 }
