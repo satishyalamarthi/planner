@@ -624,8 +624,20 @@ const STICKERS=['😊','💖','🌸','✨','🔥','🌈','💪','🙏','😂','�
 const SC=['#FFD6D6','#FFF3CD','#D6F0FF','#D6FFE8','#F0D6FF','#FFE5CC','#FFD6F0'];
 const VBS=[{label:'💖 Love & Relationships',key:'love'},{label:'💼 Career & Growth',key:'career'},{label:'🏠 Home & Space',key:'home'},{label:'🌿 Health & Body',key:'health'},{label:'💰 Finance & Abundance',key:'finance'},{label:'🌍 Travel & Adventure',key:'travel'},{label:'🎨 Hobbies & Joy',key:'hobbies'},{label:'🧠 Learning & Mind',key:'mind'}];
 const YGA=[{label:'💖 Relationships & Family',key:'rel'},{label:'💼 Career',key:'career'},{label:'🌿 Health & Fitness',key:'health'},{label:'💰 Finance',key:'finance'},{label:'🧠 Mental Wellbeing',key:'mental'},{label:'🏠 Home',key:'home'},{label:'🎨 Hobbies',key:'hobbies'},{label:'👶 Geetanath',key:'geet'}];
+const ASSIGNEES=[{id:'satish',name:'Satish',initials:'SA',color:'#5b4fcf'},{id:'keerthisri',name:'KeerthiSri',initials:'KS',color:'#d94f6e'},{id:'geetanath',name:'Geetanath',initials:'GN',color:'#2196a8'}];
 
 function load(){try{db=JSON.parse(localStorage.getItem(SK)||'{}')}catch(e){db={}}}
+
+// Helper function to get assignee names from habit
+function getAssigneeNames(habit){
+  if(!habit)return'';
+  const ids=Array.isArray(habit.assignees)?habit.assignees:(habit.assignee?[habit.assignee]:[]);
+  if(!ids.length)return'';
+  return ids.map(id=>{
+    const a=ASSIGNEES.find(x=>x.id===id);
+    return a?a.name:id;
+  }).join(', ');
+}
 
 // Debounce timer for Google Sheets sync
 let syncDebounceTimer=null;
@@ -1662,7 +1674,8 @@ function getHabitSummary(){
       }
       if(target>0||qtyValues.length>0){
         const rate=target>0?Math.round(done/target*100):0;
-        const stats={name:h.name,emoji:h.emoji||'✓',done,target,rate,type:h.type,unit:h.qtyUnit||''};
+        const assigneeNames=getAssigneeNames(h);
+        const stats={name:h.name,emoji:h.emoji||'✓',done,target,rate,type:h.type,unit:h.qtyUnit||'',assignee:assigneeNames};
         if(h.type==='qty'&&qtyValues.length>0){
           stats.max=Math.max(...qtyValues);
           stats.min=Math.min(...qtyValues);
@@ -1681,10 +1694,11 @@ function getHabitSummary(){
     else summary+=`Keep going! ${overallRate}% completion this month\n\n`;
     summary+=`📊 All Habits:\n`;
     habitStats.forEach(h=>{
+      const assigneeText=h.assignee?` [${h.assignee}]`:'';
       if(h.type==='qty'){
-        summary+=`${h.emoji} ${h.name}: Max ${h.max}, Min ${h.min}, Avg ${h.avg}${h.unit} (${h.qtyCount} days)\n`;
+        summary+=`${h.emoji} ${h.name}${assigneeText}: Max ${h.max}, Min ${h.min}, Avg ${h.avg}${h.unit} (${h.qtyCount} days)\n`;
       }else{
-        summary+=`${h.emoji} ${h.name}: ${h.done}/${h.target} days\n`;
+        summary+=`${h.emoji} ${h.name}${assigneeText}: ${h.done}/${h.target} days\n`;
       }
     });
     
