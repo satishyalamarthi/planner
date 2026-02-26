@@ -195,6 +195,63 @@ After applying the fixes, verify everything works:
 
 ---
 
+## Fix for Mobile Showing Wrong Data
+
+### Symptoms
+- Google Sheets has correct data
+- Mobile shows wrong markings (extra days, missing days, etc.)
+- Desktop might show different data than mobile
+
+### Cause
+The mobile has stale cached data in browser localStorage. Even though sync is working, the merge logic was preserving wrong local data.
+
+### Solution: Force Clean Sync ✅
+
+**New Feature Added:** A "Force Refresh" button that completely replaces local data with Google Sheets data.
+
+**How to Use:**
+
+1. **On Desktop:**
+   - Open the habit tracker
+   - Look in the sidebar (left side)
+   - Below the sync status, you'll see a **"🔄 Force Refresh"** button
+   - Click it
+   - Confirm the warning (this will overwrite local data)
+   - Wait for sync to complete
+   - Your data now matches Google Sheets exactly ✅
+
+2. **On Mobile:**
+   - Open the habit tracker
+   - Tap the **☰** menu icon (top left) to open sidebar
+   - Scroll down to sync section
+   - Tap **"🔄 Force Refresh"** button
+   - Confirm the warning
+   - Wait for "Force sync complete" message
+   - Close sidebar
+   - Your data now matches Google Sheets exactly ✅
+
+3. **Alternative (Browser Console):**
+   - Open browser console (F12 on desktop, or use browser developer tools on mobile)
+   - Type: `forceCleanSync()`
+   - Press Enter
+   - Confirm the warning
+   - Data refreshed ✅
+
+**What Force Refresh Does:**
+- Downloads fresh data from Google Sheets
+- **Completely replaces** all local cached data
+- Ignores any local changes that weren't synced
+- Ensures 100% match with Google Sheets
+- Updates the view immediately
+
+**When to Use Force Refresh:**
+- When mobile shows wrong markings but Sheets is correct
+- After fixing data directly in Google Sheets
+- When devices show different data
+- As a troubleshooting step for sync issues
+
+---
+
 ## Summary
 
 Both issues are now fixed:

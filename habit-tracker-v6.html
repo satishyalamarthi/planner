@@ -486,6 +486,9 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min
       <span id="syncLbl" onclick="showDebugInfo()" style="cursor:pointer" title="Click 3x for debug info">Not connected</span>
       <button onclick="loadFromSheets()" id="syncBtn" style="margin-left:auto;background:none;border:none;cursor:pointer;font-size:11px;color:var(--accent);font-weight:600;padding:0" title="Sync with Google Sheets">↻ Sync</button>
     </div>
+    <div style="margin-top:6px;padding:0 10px">
+      <button onclick="forceCleanSync()" style="width:100%;background:linear-gradient(135deg,rgba(255,107,107,.15),rgba(199,125,255,.15));border:1px solid rgba(255,107,107,.3);color:var(--coral);font-size:10px;font-weight:700;padding:4px 8px;border-radius:6px;cursor:pointer;transition:all .2s" onmouseover="this.style.background='linear-gradient(135deg,rgba(255,107,107,.25),rgba(199,125,255,.25))'" onmouseout="this.style.background='linear-gradient(135deg,rgba(255,107,107,.15),rgba(199,125,255,.15))'" title="Force refresh - replaces local data with Google Sheets data">🔄 Force Refresh</button>
+    </div>
   </div>
   <nav class="sb-nav">
     <div class="nav-lbl">Views</div>
@@ -966,7 +969,64 @@ async function api(payload, retries = 2) {
 
 let isSyncing = false; // Prevent concurrent syncs
 
-async function loadFromSheets() {
+async function forceCleanSync() {
+  if (!SCRIPT_URL) {
+    alert('Please configure Google Sheets sync URL first!');
+    return;
+  }
+  
+  if (!confirm('Force clean sync will completely replace your local data with data from Google Sheets. Any unsaved local changes will be lost. Continue?')) {
+    return;
+  }
+  
+  console.log('🔄 FORCE CLEAN SYNC - Ignoring local cache...');
+  setSyncStatus('syncing', 'Force syncing…');
+  
+  try {
+    const data = await api({ action: 'getAll' });
+    
+    console.log('✓ Received data from Google Sheets');
+    console.log('  - Habits:', (data.habits || []).length);
+    console.log('  - Completions:', Object.keys(data.completions || {}).length, 'habits');
+    console.log('  - QtyLogs:', Object.keys(data.qtyLogs || {}).length, 'habits');
+    
+    // FORCE: Completely overwrite with server data
+    let serverHabits = data.habits || [];
+    serverHabits = serverHabits.map(h => {
+      if (!h.type || (h.type !== 'check' && h.type !== 'qty')) {
+        const hasQtyFields = (h.hasOwnProperty('qtyUnit') && h.qtyUnit) || (h.hasOwnProperty('qtyGoal') && h.qtyGoal);
+        h.type = hasQtyFields ? 'qty' : 'check';
+      }
+      h.synced = true;
+      return h;
+    });
+    
+    habits = serverHabits;
+    completions = data.completions || {};
+    qtyLogs = data.qtyLogs || {};
+    
+    // Save to localStorage
+    saveToLocalStorage();
+    saveQtyLogs();
+    updateAll();
+    
+    setSyncStatus('ok', 'Force sync complete · ' + new Date().toLocaleTimeString());
+    toast('✓ Data refreshed from Google Sheets!', '✓', true);
+    console.log('✓ FORCE SYNC COMPLETE - All data replaced with server data');
+    
+    // Show summary
+    const totalCompletions = Object.values(completions).reduce((sum, dates) => sum + Object.keys(dates).length, 0);
+    const totalQtyLogs = Object.values(qtyLogs).reduce((sum, dates) => sum + Object.keys(dates).length, 0);
+    console.log(`Summary: ${habits.length} habits, ${totalCompletions} completions, ${totalQtyLogs} qty logs`);
+    
+  } catch(e) {
+    console.error('Force sync error:', e);
+    setSyncStatus('err', 'Force sync failed');
+    toast('Could not sync: ' + e.message, '⚠', false);
+  }
+}
+
+async function loadFromSheets(forceClean = false) {
   if (!SCRIPT_URL) {
     setSyncStatus('err', 'Not configured');
     return;
@@ -981,8 +1041,8 @@ async function loadFromSheets() {
   isSyncing = true;
   setSyncStatus('syncing', 'Syncing…');
   try {
-    // Save local-only habits (not yet synced) before loading from sheets
-    const localOnlyHabits = habits.filter(h => h.synced === false);
+    // Save local-only habits (not yet synced) before loading from sheets (unless forcing clean)
+    const localOnlyHabits = forceClean ? [] : habits.filter(h => h.synced === false);
     
     console.log('=== MOBILE SYNC DEBUG ===');
     console.log('Device:', navigator.userAgent);
@@ -1027,30 +1087,33 @@ async function loadFromSheets() {
     });
     habits = mergedHabits;
     
-    // Merge completions: prefer server data, but keep local completions if server is empty
+    // Merge completions: Use server data as source of truth
     const serverCompletions = data.completions || {};
-    const localCompletions = completions; // Current completions loaded from localStorage
+    const localCompletions = forceClean ? {} : completions; // Ignore local if force clean
     
-    // If server has data, use it as base; otherwise keep local
-    if (Object.keys(serverCompletions).length > 0) {
+    if (forceClean || Object.keys(serverCompletions).length > 0) {
+      // Use server data as base
       completions = {...serverCompletions};
-      // Add any local completions that aren't on server
-      Object.keys(localCompletions).forEach(habitId => {
-        if (!completions[habitId]) completions[habitId] = {};
-        Object.keys(localCompletions[habitId]).forEach(dateKey => {
-          if (!completions[habitId][dateKey]) {
-            completions[habitId][dateKey] = localCompletions[habitId][dateKey];
-          }
+      
+      // Only add local completions if NOT force clean and they're not on server
+      if (!forceClean) {
+        Object.keys(localCompletions).forEach(habitId => {
+          if (!completions[habitId]) completions[habitId] = {};
+          Object.keys(localCompletions[habitId]).forEach(dateKey => {
+            if (!completions[habitId][dateKey]) {
+              completions[habitId][dateKey] = localCompletions[habitId][dateKey];
+            }
+          });
         });
-      });
+      }
     } else {
       console.warn('Server returned no completions - keeping local data');
       completions = localCompletions;
     }
     
-    // Load quantity logs from server and merge with local unsaved logs
+    // Load quantity logs from server
     const serverQtyLogs = data.qtyLogs || {};
-    const localQtyLogs = JSON.parse(localStorage.getItem('ritual_qtylogs') || '{}');
+    const localQtyLogs = forceClean ? {} : JSON.parse(localStorage.getItem('ritual_qtylogs') || '{}');
     
     console.log('=== QUANTITY LOGS SYNC DEBUG ===');
     console.log('Raw data.qtyLogs from server:', data.qtyLogs);
@@ -1063,21 +1126,23 @@ async function loadFromSheets() {
     console.log('Local qtyLogs:', localQtyLogs);
     console.log('Local qtyLogs keys:', Object.keys(localQtyLogs));
     
-    // FORCE: Always prefer server data if it exists, ignore local
-    if (data.qtyLogs !== undefined && data.qtyLogs !== null) {
-      console.log('✓ Server has qtyLogs property - using server data');
+    // FORCE: Use server data as source of truth
+    if (forceClean || (data.qtyLogs !== undefined && data.qtyLogs !== null)) {
+      console.log('✓ Using server qtyLogs data');
       qtyLogs = {...serverQtyLogs};
       
-      // Only merge local data if server doesn't have specific entries
-      Object.keys(localQtyLogs).forEach(habitId => {
-        if (!qtyLogs[habitId]) qtyLogs[habitId] = {};
-        Object.keys(localQtyLogs[habitId]).forEach(dateKey => {
-          if (qtyLogs[habitId][dateKey] === undefined) {
-            console.log(`Adding local entry not on server: ${habitId}/${dateKey} = ${localQtyLogs[habitId][dateKey]}`);
-            qtyLogs[habitId][dateKey] = localQtyLogs[habitId][dateKey];
-          }
+      // Only merge local data if NOT force clean and server doesn't have specific entries
+      if (!forceClean) {
+        Object.keys(localQtyLogs).forEach(habitId => {
+          if (!qtyLogs[habitId]) qtyLogs[habitId] = {};
+          Object.keys(localQtyLogs[habitId]).forEach(dateKey => {
+            if (qtyLogs[habitId][dateKey] === undefined) {
+              console.log(`Adding local entry not on server: ${habitId}/${dateKey} = ${localQtyLogs[habitId][dateKey]}`);
+              qtyLogs[habitId][dateKey] = localQtyLogs[habitId][dateKey];
+            }
+          });
         });
-      });
+      }
     } else {
       console.warn('⚠️ Server did NOT return qtyLogs property - keeping local data');
       qtyLogs = localQtyLogs;
