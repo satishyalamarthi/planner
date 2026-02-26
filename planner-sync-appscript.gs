@@ -28,6 +28,12 @@ function doPost(e) {
         return response(saveAllPlannerData(payload.data));
       case 'saveSingle':
         return response(saveSingleEntry(payload.key, payload.value));
+      case 'toggleCompletion':
+        return response(toggleCompletion(payload.habitId, payload.dateKey, payload.value));
+      case 'saveHabit':
+        return response(saveHabit(payload.habit, payload.isEdit));
+      case 'saveQtyLog':
+        return response(saveQtyLog(payload.habitId, payload.dateKey, payload.qtyValue));
       default:
         return response(null, 'Unknown action: ' + action);
     }
@@ -152,6 +158,94 @@ function saveSingleEntry(key, value) {
   }
   
   return { key: key, updated: timestamp };
+}
+
+// Toggle a habit completion status
+function toggleCompletion(habitId, dateKey, value) {
+  const completionsKey = 'ritual_completions';
+  const completions = getKeyData(completionsKey) || {};
+  
+  if (!completions[habitId]) {
+    completions[habitId] = {};
+  }
+  
+  if (value) {
+    completions[habitId][dateKey] = true;
+  } else {
+    delete completions[habitId][dateKey];
+  }
+  
+  saveKeyData(completionsKey, completions);
+  return { habitId: habitId, dateKey: dateKey, value: value };
+}
+
+// Save a habit
+function saveHabit(habit, isEdit) {
+  const habitsKey = 'ritual_habits';
+  let habits = getKeyData(habitsKey) || [];
+  
+  if (isEdit) {
+    // Update existing habit
+    const index = habits.findIndex(h => h.id === habit.id);
+    if (index >= 0) {
+      habits[index] = habit;
+    } else {
+      habits.push(habit);
+    }
+  } else {
+    // Add new habit
+    habits.push(habit);
+  }
+  
+  saveKeyData(habitsKey, habits);
+  return { habitId: habit.id, saved: true };
+}
+
+// Save a quantity log entry
+function saveQtyLog(habitId, dateKey, qtyValue) {
+  const qtyLogsKey = 'ritual_qtylogs';
+  const qtyLogs = getKeyData(qtyLogsKey) || {};
+  
+  if (!qtyLogs[habitId]) {
+    qtyLogs[habitId] = {};
+  }
+  
+  if (qtyValue === null || qtyValue === undefined) {
+    delete qtyLogs[habitId][dateKey];
+  } else {
+    qtyLogs[habitId][dateKey] = qtyValue;
+  }
+  
+  saveKeyData(qtyLogsKey, qtyLogs);
+  return { habitId: habitId, dateKey: dateKey, qtyValue: qtyValue };
+}
+
+// Helper function to get data for a specific key
+function getKeyData(key) {
+  const sheet = getSheet();
+  const lastRow = sheet.getLastRow();
+  
+  if (lastRow <= 1) return null;
+  
+  const keys = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
+  
+  for (let i = 0; i < keys.length; i++) {
+    if (keys[i][0] === key) {
+      try {
+        return JSON.parse(keys[i][1]);
+      } catch(e) {
+        Logger.log('Failed to parse value for key: ' + key);
+        return null;
+      }
+    }
+  }
+  
+  return null;
+}
+
+// Helper function to save data for a specific key
+function saveKeyData(key, data) {
+  return saveSingleEntry(key, data);
 }
 
 // Optional: Clean up old data (for maintenance)
