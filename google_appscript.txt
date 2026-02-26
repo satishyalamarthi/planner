@@ -225,7 +225,7 @@ function getAll() {
 
   // Read period and mood tracker data from DEDICATED SHEETS
   const periodDates = {};
-  const moods = { satish: {}, keerthisri: {}, geetanath: {} };
+  const moods = {};
   
   // Read from PeriodTracker sheet
   const periodSheet = getOrCreateSheet(SHEET_NAMES.periodTracker);
@@ -246,9 +246,12 @@ function getAll() {
     const [userId, date, moodId] = row;
     if (userId && date && moodId) {
       const dateStr = formatDate(date);
-      if (moods[userId]) {
-        moods[userId][dateStr] = String(moodId);
+      // Dynamically initialize userId object if it doesn't exist
+      if (!moods[userId]) {
+        moods[userId] = {};
       }
+      // Only store the latest mood for each date (prevents duplicates)
+      moods[userId][dateStr] = String(moodId);
     }
   });
   
@@ -257,9 +260,12 @@ function getAll() {
   
   Logger.log('Return object now includes periodDates and moods');
   Logger.log('  - Period dates count: ' + Object.keys(periodDates).length);
-  Logger.log('  - Mood entries: satish=' + Object.keys(moods.satish).length + 
-             ', keerthisri=' + Object.keys(moods.keerthisri).length + 
-             ', geetanath=' + Object.keys(moods.geetanath).length);
+  
+  // Log mood counts dynamically for all users
+  const moodCounts = Object.keys(moods).map(userId => 
+    userId + '=' + Object.keys(moods[userId] || {}).length
+  ).join(', ');
+  Logger.log('  - Mood entries: ' + (moodCounts || 'none'));
 
   return returnObj;
 }
@@ -459,16 +465,19 @@ function saveMoodData(moods) {
   
   // Use dedicated MoodTracker sheet
   const sheet = getOrCreateSheet(SHEET_NAMES.moodTracker);
-  const data  = sheet.getDataRange().getValues();
   
-  // Remove all existing entries (except header)
-  if (data.length > 1) {
-    sheet.deleteRows(2, data.length - 1);
+  // Clear all existing data (more reliable approach)
+  const lastRow = sheet.getLastRow();
+  if (lastRow > 1) {
+    sheet.deleteRows(2, lastRow - 1);
+    Logger.log('Cleared ' + (lastRow - 1) + ' existing mood entries');
   }
   
+  // Collect all entries to save in a batch (prevent duplication)
+  const rowsToAdd = [];
   let totalSaved = 0;
   
-  // Add all mood entries for all users
+  // Process all mood entries for all users
   Object.keys(moods).forEach(userId => {
     const userMoods = moods[userId] || {};
     
@@ -477,11 +486,17 @@ function saveMoodData(moods) {
     Object.keys(userMoods).forEach(dateKey => {
       const moodId = userMoods[dateKey];
       if (moodId) {
-        sheet.appendRow([userId, dateKey, String(moodId)]);
+        rowsToAdd.push([userId, dateKey, String(moodId)]);
         totalSaved++;
       }
     });
   });
+  
+  // Batch insert all rows at once (more efficient and prevents partial writes)
+  if (rowsToAdd.length > 0) {
+    sheet.getRange(2, 1, rowsToAdd.length, 3).setValues(rowsToAdd);
+    Logger.log('Batch inserted ' + rowsToAdd.length + ' mood entries');
+  }
   
   Logger.log('Mood data saved to MoodTracker sheet: ' + totalSaved + ' total entries');
   return { saved: totalSaved };
