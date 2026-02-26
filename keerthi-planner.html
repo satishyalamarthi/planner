@@ -632,6 +632,7 @@ function load(){try{db=JSON.parse(localStorage.getItem(SK)||'{}')}catch(e){db={}
 function cleanupCorruptedKeys(){
   console.log('🔍 Checking for corrupted keys...');
   const keysToFix=[];
+  const monthDataToMigrate=[];
   
   // Find all keys that look like Date strings
   Object.keys(db).forEach(key=>{
@@ -640,11 +641,25 @@ function cleanupCorruptedKeys(){
       keysToFix.push(key);
       console.log('Found corrupted key:', key);
     }
+    
+    // Check if key is a day key (yyyy-mm-dd) with month-level data
+    if(key.match(/^\d{4}-\d{2}-01$/)){
+      const data=db[key];
+      // Check if it has month-level data (mantra, highlights, etc.)
+      if(data&&(data.mantra||data['mantra-why']||data['mantra-imgs']||
+                data['hl-proud']||data['hl-mem']||data['hl-lrn']||
+                data['hl-grw']||data['hl-grat']||data['hl-nxt']||data['hl-imgs'])){
+        monthDataToMigrate.push(key);
+        console.log('Found month data in day key:', key);
+      }
+    }
   });
   
+  let fixed=0;
+  
+  // Fix corrupted Date keys
   if(keysToFix.length>0){
     console.warn(`⚠️ Found ${keysToFix.length} corrupted keys. Attempting to fix...`);
-    let fixed=0;
     
     keysToFix.forEach(badKey=>{
       try{
@@ -673,13 +688,54 @@ function cleanupCorruptedKeys(){
         console.error('Failed to fix key:', badKey, e);
       }
     });
+  }
+  
+  // Migrate month-level data from day keys to month keys
+  if(monthDataToMigrate.length>0){
+    console.warn(`⚠️ Found ${monthDataToMigrate.length} day keys with month data. Migrating...`);
     
-    if(fixed>0){
-      localStorage.setItem(SK,JSON.stringify(db));
-      console.log(`✅ Fixed ${fixed} corrupted keys`);
-      toast(`✓ Fixed ${fixed} corrupted data entries`);
-      return true;
-    }
+    monthDataToMigrate.forEach(dayKey=>{
+      try{
+        // Extract month key (yyyy-mm) from day key (yyyy-mm-01)
+        const monthKey=dayKey.substring(0,7);
+        const dayData=db[dayKey];
+        
+        // Initialize month data if it doesn't exist
+        if(!db[monthKey])db[monthKey]={};
+        
+        // Migrate month-level properties
+        const monthProps=['mantra','mantra-why','mantra-imgs',
+                          'hl-proud','hl-mem','hl-lrn','hl-grw','hl-grat','hl-nxt','hl-imgs',
+                          'learn','learn-imgs','tasks','todo-imgs','notes'];
+        
+        monthProps.forEach(prop=>{
+          if(dayData[prop]!==undefined){
+            // Only migrate if month data doesn't already have this property
+            if(!db[monthKey][prop]){
+              db[monthKey][prop]=dayData[prop];
+              console.log(`✓ Migrated ${prop} from ${dayKey} to ${monthKey}`);
+              fixed++;
+            }
+            // Remove from day data
+            delete dayData[prop];
+          }
+        });
+        
+        // If day data is now empty, remove the key
+        if(Object.keys(dayData).length===0){
+          delete db[dayKey];
+        }
+      }catch(e){
+        console.error('Failed to migrate month data:', dayKey, e);
+      }
+    });
+  }
+  
+  if(fixed>0){
+    localStorage.setItem(SK,JSON.stringify(db));
+    console.log(`✅ Fixed ${fixed} corrupted/misplaced data entries`);
+    toast(`✓ Fixed ${fixed} corrupted data entries`);
+    return true;
   }
   return false;
 }
