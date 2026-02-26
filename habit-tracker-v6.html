@@ -997,18 +997,37 @@ async function forceCleanSync() {
     return;
   }
   
-  console.log('🔄 FORCE CLEAN SYNC - Ignoring local cache...');
+  console.log('🔄 FORCE CLEAN SYNC - Starting...');
+  console.log('Before sync - Local data:');
+  console.log('  - Habits:', habits.length);
+  console.log('  - Completions:', Object.keys(completions).length, 'habits');
+  console.log('  - QtyLogs:', Object.keys(qtyLogs).length, 'habits');
+  console.log('  - Period dates:', Object.keys(periodDates).length);
+  console.log('  - Moods:', Object.values(moods).reduce((s, m) => s + Object.keys(m).length, 0));
+  
   setSyncStatus('syncing', 'Force syncing…');
   
   try {
+    console.log('📡 Calling getAll API...');
     const data = await api({ action: 'getAll' });
     
-    console.log('✓ Received data from Google Sheets');
+    if (!data) {
+      throw new Error('No data received from server');
+    }
+    
+    console.log('✓ Received data from Google Sheets:');
     console.log('  - Habits:', (data.habits || []).length);
     console.log('  - Completions:', Object.keys(data.completions || {}).length, 'habits');
     console.log('  - QtyLogs:', Object.keys(data.qtyLogs || {}).length, 'habits');
     console.log('  - Period dates:', Object.keys(data.periodDates || {}).length, 'dates');
     console.log('  - Mood data:', Object.keys(data.moods || {}).length, 'users');
+    
+    // Log the actual habit data to verify
+    if ((data.habits || []).length === 0) {
+      console.warn('⚠️ Server returned ZERO habits! This might be unexpected.');
+    } else {
+      console.log('Server habits:', data.habits.map(h => ({ id: h.id, name: h.name, type: h.type })));
+    }
     
     // FORCE: Completely overwrite with server data
     let serverHabits = data.habits || [];
@@ -1021,22 +1040,28 @@ async function forceCleanSync() {
       return h;
     });
     
+    console.log('📝 Setting local variables...');
     habits = serverHabits;
     completions = data.completions || {};
     qtyLogs = data.qtyLogs || {};
     periodDates = data.periodDates || {};
     moods = data.moods || {};
     
+    console.log('After assignment - habits.length =', habits.length);
+    
     // Ensure mood structure
     if(!moods.satish) moods.satish = {};
     if(!moods.keerthisri) moods.keerthisri = {};
     if(!moods.geetanath) moods.geetanath = {};
     
+    console.log('💾 Saving to localStorage...');
     // Save to localStorage
     saveToLocalStorage();
     saveQtyLogs();
     localStorage.setItem('ritual_period_dates', JSON.stringify(periodDates));
     localStorage.setItem('ritual_moods', JSON.stringify(moods));
+    
+    console.log('🔄 Updating UI...');
     updateAll();
     
     // Refresh period and mood views if visible

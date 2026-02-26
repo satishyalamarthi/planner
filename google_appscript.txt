@@ -166,6 +166,12 @@ function getAll() {
         return;
       }
       
+      // CRITICAL FIX: Skip period tracker and mood tracker entries
+      // These are stored in assignee sheets but are NOT habits
+      if (habitId === 'period_tracker' || habitId.startsWith('mood_')) {
+        return; // Skip - these will be processed separately below
+      }
+      
       const dateStr = formatDate(date);
       
       // Store completions (for check-type habits)
