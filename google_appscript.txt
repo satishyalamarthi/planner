@@ -6,10 +6,12 @@
 // ═══════════════════════════════════════════════════════════════
 
 const SHEET_NAMES = {
-  habits:     'Habits',
-  satish:     'Satish',
-  keerthisri: 'KeerthiSri',
-  geetanath:  'Geetanath'
+  habits:       'Habits',
+  satish:       'Satish',
+  keerthisri:   'KeerthiSri',
+  geetanath:    'Geetanath',
+  periodTracker: 'PeriodTracker',
+  moodTracker:   'MoodTracker'
 };
 
 // ── CORS wrapper ────────────────────────────────────────────────
@@ -56,6 +58,14 @@ function getOrCreateSheet(name) {
     if (name === SHEET_NAMES.habits) {
       sheet.appendRow(['id','name','emoji','freq','color','assignee','assignees','cpN','cpPeriod','type','qtyUnit','qtyGoal','createdAt']);
       sheet.getRange(1,1,1,13).setFontWeight('bold').setBackground('#e8f5e3');
+    } else if (name === SHEET_NAMES.periodTracker) {
+      // Period tracker sheet: date | marked
+      sheet.appendRow(['date','marked']);
+      sheet.getRange(1,1,1,2).setFontWeight('bold').setBackground('#fce8e8');
+    } else if (name === SHEET_NAMES.moodTracker) {
+      // Mood tracker sheet: userId | date | moodId
+      sheet.appendRow(['userId','date','moodId']);
+      sheet.getRange(1,1,1,3).setFontWeight('bold').setBackground('#e8f0fc');
     } else {
       // Assignee completion sheets: habitId | date | done | qtyValue
       sheet.appendRow(['habitId','date','done','qtyValue']);
@@ -136,14 +146,16 @@ function getAll() {
   
   Logger.log('Returning ' + habits.length + ' habits from getAll()');
 
-  // Gather completions and quantity logs from all assignee sheets
+  // Gather completions and quantity logs from ASSIGNEE SHEETS ONLY
   const completions = {};
   const qtyLogs = {};
   let qtyLogCount = 0;
   let skippedRowCount = 0;
   
-  Object.values(SHEET_NAMES).forEach(sheetName => {
-    if (sheetName === SHEET_NAMES.habits) return;
+  // Only process assignee sheets (not period/mood tracker sheets)
+  const assigneeSheets = [SHEET_NAMES.satish, SHEET_NAMES.keerthisri, SHEET_NAMES.geetanath];
+  
+  assigneeSheets.forEach(sheetName => {
     const sheet = getOrCreateSheet(sheetName);
     const data  = sheet.getDataRange().getValues();
     
@@ -164,12 +176,6 @@ function getAll() {
           Logger.log(`⚠️ Skipping row ${index + 2} in ${sheetName}: Missing habitId but has qtyValue=${qtyValue}`);
         }
         return;
-      }
-      
-      // CRITICAL FIX: Skip period tracker and mood tracker entries
-      // These are stored in assignee sheets but are NOT habits
-      if (habitId === 'period_tracker' || habitId.startsWith('mood_')) {
-        return; // Skip - these will be processed separately below
       }
       
       const dateStr = formatDate(date);
@@ -217,34 +223,33 @@ function getAll() {
   Logger.log('Return object.qtyLogs type: ' + typeof returnObj.qtyLogs);
   Logger.log('Return object.qtyLogs: ' + JSON.stringify(returnObj.qtyLogs));
 
-  // Add period and mood tracker data from sheets
-  // Look for period and mood data in the assignee sheets (stored with special habit IDs)
+  // Read period and mood tracker data from DEDICATED SHEETS
   const periodDates = {};
   const moods = { satish: {}, keerthisri: {}, geetanath: {} };
   
-  Object.values(SHEET_NAMES).forEach(sheetName => {
-    if (sheetName === SHEET_NAMES.habits) return;
-    const sheet = getOrCreateSheet(sheetName);
-    const data  = sheet.getDataRange().getValues();
-    
-    data.slice(1).forEach(row => {
-      const [habitId, date, done, qtyValue] = row;
-      if (!habitId || !date) return;
+  // Read from PeriodTracker sheet
+  const periodSheet = getOrCreateSheet(SHEET_NAMES.periodTracker);
+  const periodData  = periodSheet.getDataRange().getValues();
+  
+  periodData.slice(1).forEach(row => {
+    const [date, marked] = row;
+    if (date && marked) {
+      periodDates[formatDate(date)] = true;
+    }
+  });
+  
+  // Read from MoodTracker sheet
+  const moodSheet = getOrCreateSheet(SHEET_NAMES.moodTracker);
+  const moodData  = moodSheet.getDataRange().getValues();
+  
+  moodData.slice(1).forEach(row => {
+    const [userId, date, moodId] = row;
+    if (userId && date && moodId) {
       const dateStr = formatDate(date);
-      
-      // Period tracker uses special habit ID 'period_tracker'
-      if (habitId === 'period_tracker' && done) {
-        periodDates[dateStr] = true;
+      if (moods[userId]) {
+        moods[userId][dateStr] = String(moodId);
       }
-      
-      // Mood tracker uses special habit ID pattern 'mood_<userId>'
-      if (habitId && habitId.startsWith('mood_')) {
-        const userId = habitId.replace('mood_', '');
-        if (moods[userId] && qtyValue) {
-          moods[userId][dateStr] = String(qtyValue);
-        }
-      }
-    });
+    }
   });
   
   returnObj.periodDates = periodDates;
@@ -420,27 +425,25 @@ function savePeriodData(periodDates) {
     return { error: 'Invalid period data' };
   }
   
-  Logger.log('Saving period data: ' + Object.keys(periodDates).length + ' dates');
+  Logger.log('Saving period data to DEDICATED PeriodTracker sheet: ' + Object.keys(periodDates).length + ' dates');
   
-  // Use satish's sheet for period tracker (can use any assignee sheet)
-  const sheet = getOrCreateSheet(SHEET_NAMES.satish);
+  // Use dedicated PeriodTracker sheet
+  const sheet = getOrCreateSheet(SHEET_NAMES.periodTracker);
   const data  = sheet.getDataRange().getValues();
   
-  // Remove all existing period tracker entries
-  for (let i = data.length - 1; i >= 1; i--) {
-    if (String(data[i][0]) === 'period_tracker') {
-      sheet.deleteRow(i + 1);
-    }
+  // Remove all existing entries (except header)
+  if (data.length > 1) {
+    sheet.deleteRows(2, data.length - 1);
   }
   
   // Add all period dates
   Object.keys(periodDates).forEach(dateKey => {
     if (periodDates[dateKey]) {
-      sheet.appendRow(['period_tracker', dateKey, true, '']);
+      sheet.appendRow([dateKey, true]);
     }
   });
   
-  Logger.log('Period data saved: ' + Object.keys(periodDates).length + ' dates');
+  Logger.log('Period data saved to PeriodTracker sheet: ' + Object.keys(periodDates).length + ' dates');
   return { saved: Object.keys(periodDates).length };
 }
 
@@ -452,38 +455,35 @@ function saveMoodData(moods) {
     return { error: 'Invalid mood data' };
   }
   
+  Logger.log('Saving mood data to DEDICATED MoodTracker sheet');
+  
+  // Use dedicated MoodTracker sheet
+  const sheet = getOrCreateSheet(SHEET_NAMES.moodTracker);
+  const data  = sheet.getDataRange().getValues();
+  
+  // Remove all existing entries (except header)
+  if (data.length > 1) {
+    sheet.deleteRows(2, data.length - 1);
+  }
+  
   let totalSaved = 0;
   
+  // Add all mood entries for all users
   Object.keys(moods).forEach(userId => {
-    if (!SHEET_NAMES[userId]) {
-      Logger.log('WARNING: Unknown user ID: ' + userId);
-      return;
-    }
-    
     const userMoods = moods[userId] || {};
-    const sheet = getOrCreateSheet(SHEET_NAMES[userId]);
-    const data  = sheet.getDataRange().getValues();
     
-    Logger.log('Saving mood data for ' + userId + ': ' + Object.keys(userMoods).length + ' entries');
+    Logger.log('Processing mood data for ' + userId + ': ' + Object.keys(userMoods).length + ' entries');
     
-    // Remove all existing mood entries for this user
-    for (let i = data.length - 1; i >= 1; i--) {
-      if (String(data[i][0]) === 'mood_' + userId) {
-        sheet.deleteRow(i + 1);
-      }
-    }
-    
-    // Add all mood entries for this user
     Object.keys(userMoods).forEach(dateKey => {
       const moodId = userMoods[dateKey];
       if (moodId) {
-        sheet.appendRow(['mood_' + userId, dateKey, '', String(moodId)]);
+        sheet.appendRow([userId, dateKey, String(moodId)]);
         totalSaved++;
       }
     });
   });
   
-  Logger.log('Mood data saved: ' + totalSaved + ' total entries');
+  Logger.log('Mood data saved to MoodTracker sheet: ' + totalSaved + ' total entries');
   return { saved: totalSaved };
 }
 
