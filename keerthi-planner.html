@@ -628,6 +628,62 @@ const ASSIGNEES=[{id:'satish',name:'Satish',initials:'SA',color:'#5b4fcf'},{id:'
 
 function load(){try{db=JSON.parse(localStorage.getItem(SK)||'{}')}catch(e){db={}}}
 
+// Clean up corrupted keys from Date objects
+function cleanupCorruptedKeys(){
+  console.log('🔍 Checking for corrupted keys...');
+  const keysToFix=[];
+  
+  // Find all keys that look like Date strings
+  Object.keys(db).forEach(key=>{
+    // Check if key contains day names or GMT (signs of Date.toString())
+    if(key.includes('GMT')||key.match(/(Mon|Tue|Wed|Thu|Fri|Sat|Sun)/)){
+      keysToFix.push(key);
+      console.log('Found corrupted key:', key);
+    }
+  });
+  
+  if(keysToFix.length>0){
+    console.warn(`⚠️ Found ${keysToFix.length} corrupted keys. Attempting to fix...`);
+    let fixed=0;
+    
+    keysToFix.forEach(badKey=>{
+      try{
+        // Try to parse the date string back to a Date object
+        const dateObj=new Date(badKey);
+        if(!isNaN(dateObj.getTime())){
+          const y=dateObj.getFullYear();
+          const m=String(dateObj.getMonth()+1).padStart(2,'0');
+          const d=String(dateObj.getDate()).padStart(2,'0');
+          
+          // Generate correct key format
+          const correctKey=`${y}-${m}-${d}`;
+          
+          // Only fix if the correct key doesn't already exist
+          if(!db[correctKey]){
+            db[correctKey]=db[badKey];
+            delete db[badKey];
+            console.log(`✓ Fixed: ${badKey} → ${correctKey}`);
+            fixed++;
+          }else{
+            console.warn(`⚠️ Skipped ${badKey} because ${correctKey} already exists`);
+            delete db[badKey]; // Remove the corrupted duplicate
+          }
+        }
+      }catch(e){
+        console.error('Failed to fix key:', badKey, e);
+      }
+    });
+    
+    if(fixed>0){
+      localStorage.setItem(SK,JSON.stringify(db));
+      console.log(`✅ Fixed ${fixed} corrupted keys`);
+      toast(`✓ Fixed ${fixed} corrupted data entries`);
+      return true;
+    }
+  }
+  return false;
+}
+
 // Helper function to get assignee names from habit
 function getAssigneeNames(habit){
   if(!habit){
@@ -753,6 +809,12 @@ async function loadFromSheets(){
         // This allows local edits to persist while getting new server data
         db={...serverData,...db};
         console.log(`Merge sync: ${serverKeys} server items, ${localKeys} local items`);
+      }
+      // Clean up any corrupted keys from the server data
+      const hadCorruption=cleanupCorruptedKeys();
+      if(hadCorruption){
+        // Re-sync to fix the server data
+        setTimeout(()=>forceSyncToSheets(),1000);
       }
       localStorage.setItem(SK,JSON.stringify(db));
     }
@@ -2020,6 +2082,7 @@ function rYReflect(){
 
 // INIT
 load();
+cleanupCorruptedKeys(); // Fix any corrupted keys from old code versions
 const now=new Date();cY=now.getFullYear();cM=now.getMonth();
 const dayOfWeek=now.getDay();
 const mondayOffset=dayOfWeek===0?6:dayOfWeek-1;
