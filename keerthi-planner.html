@@ -1630,10 +1630,16 @@ function addSticky(){const a=gM('notes')||[];a.push('');sM('notes',a);rNotes()}
 // HIGHLIGHTS
 function getHabitSummary(){
   try{
+    console.log('getHabitSummary called for:', cY, cM);
     const habits=JSON.parse(localStorage.getItem('ritual_habits')||'[]');
     const comps=JSON.parse(localStorage.getItem('ritual_completions')||'{}');
     const qtyLogs=JSON.parse(localStorage.getItem('ritual_qtylogs')||'{}');
-    if(!habits.length)return null;
+    console.log('Loaded habits:', habits.length, 'habits');
+    console.log('Loaded completions keys:', Object.keys(comps).length);
+    if(!habits.length){
+      console.log('No habits found');
+      return null;
+    }
     const mStart=new Date(cY,cM,1),mEnd=new Date(cY,cM+1,0);
     const today=new Date();const lastDay=mEnd>today?today:mEnd;
     let totalDone=0,totalTarget=0;const habitStats=[];
@@ -1742,8 +1748,12 @@ function getHabitSummary(){
       if(hasMoodData)summary+=moodSummary;
     }catch(e){console.error('Mood summary error:',e);}
     
+    console.log('Returning habit summary with', habitStats.length, 'habits');
     return{summary,overallRate,habitStats,totalDone,totalTarget};
-  }catch(e){return null;}
+  }catch(e){
+    console.error('Error in getHabitSummary:',e);
+    return null;
+  }
 }
 function rHL(){
   const existingProud=gM('hl-proud');
@@ -1759,14 +1769,30 @@ function rHL(){
   lStrip('hl-imgs','hl-imgs');
 }
 function refreshHabitSummary(){
+  console.log('Refreshing habit summary for month:', cY, cM);
   const habitData=getHabitSummary();
+  console.log('Habit data received:', habitData);
   if(habitData){
     const proudText=habitData.summary;
-    document.getElementById('hl-proud').value=proudText;
-    sM('hl-proud',proudText);
-    toast('✓ Habit summary refreshed!');
+    const textarea=document.getElementById('hl-proud');
+    if(textarea){
+      textarea.value=proudText;
+      sM('hl-proud',proudText);
+      toast('✓ Habit summary refreshed!');
+    }else{
+      console.error('Could not find hl-proud textarea');
+      toast('⚠️ Error: UI element not found');
+    }
   }else{
-    toast('⚠️ No habit data found');
+    // Check localStorage to provide better feedback
+    const habits=localStorage.getItem('ritual_habits');
+    const comps=localStorage.getItem('ritual_completions');
+    console.log('ritual_habits exists:', !!habits, 'ritual_completions exists:', !!comps);
+    if(!habits){
+      toast('⚠️ No habits found in Habit Tracker');
+    }else{
+      toast('⚠️ No habit data for this month');
+    }
   }
 }
 
