@@ -34,6 +34,10 @@ function doPost(e) {
         return response(saveHabit(payload.habit, payload.isEdit));
       case 'saveQtyLog':
         return response(saveQtyLog(payload.habitId, payload.dateKey, payload.qtyValue));
+      case 'savePeriodData':
+        return response(saveKeyData('ritual_period_dates', payload.periodDates));
+      case 'saveMoodData':
+        return response(saveKeyData('ritual_moods', payload.moods));
       default:
         return response(null, 'Unknown action: ' + action);
     }

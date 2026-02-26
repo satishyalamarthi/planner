@@ -989,6 +989,8 @@ async function forceCleanSync() {
     console.log('  - Habits:', (data.habits || []).length);
     console.log('  - Completions:', Object.keys(data.completions || {}).length, 'habits');
     console.log('  - QtyLogs:', Object.keys(data.qtyLogs || {}).length, 'habits');
+    console.log('  - Period dates:', Object.keys(data.periodDates || {}).length, 'dates');
+    console.log('  - Mood data:', Object.keys(data.moods || {}).length, 'users');
     
     // FORCE: Completely overwrite with server data
     let serverHabits = data.habits || [];
@@ -1004,11 +1006,27 @@ async function forceCleanSync() {
     habits = serverHabits;
     completions = data.completions || {};
     qtyLogs = data.qtyLogs || {};
+    periodDates = data.periodDates || {};
+    moods = data.moods || {};
+    
+    // Ensure mood structure
+    if(!moods.satish) moods.satish = {};
+    if(!moods.keerthisri) moods.keerthisri = {};
+    if(!moods.geetanath) moods.geetanath = {};
     
     // Save to localStorage
     saveToLocalStorage();
     saveQtyLogs();
+    localStorage.setItem('ritual_period_dates', JSON.stringify(periodDates));
+    localStorage.setItem('ritual_moods', JSON.stringify(moods));
     updateAll();
+    
+    // Refresh period and mood views if visible
+    if (document.querySelector('.view.active')?.id === 'periodView') renderPeriodCalendar();
+    if (document.querySelector('.view.active')?.id === 'moodView') {
+      renderMoodPicker();
+      renderMoodHistory();
+    }
     
     setSyncStatus('ok', 'Force sync complete · ' + new Date().toLocaleTimeString());
     toast('✓ Data refreshed from Google Sheets!', '✓', true);
@@ -1017,7 +1035,9 @@ async function forceCleanSync() {
     // Show summary
     const totalCompletions = Object.values(completions).reduce((sum, dates) => sum + Object.keys(dates).length, 0);
     const totalQtyLogs = Object.values(qtyLogs).reduce((sum, dates) => sum + Object.keys(dates).length, 0);
-    console.log(`Summary: ${habits.length} habits, ${totalCompletions} completions, ${totalQtyLogs} qty logs`);
+    const periodCount = Object.keys(periodDates).length;
+    const moodCount = Object.values(moods).reduce((sum, userMoods) => sum + Object.keys(userMoods).length, 0);
+    console.log(`Summary: ${habits.length} habits, ${totalCompletions} completions, ${totalQtyLogs} qty logs, ${periodCount} period dates, ${moodCount} mood entries`);
     
   } catch(e) {
     console.error('Force sync error:', e);
@@ -1162,6 +1182,38 @@ async function loadFromSheets(forceClean = false) {
     // Save merged data to localStorage for offline use
     saveToLocalStorage();
     saveQtyLogs();
+    
+    // Load period and mood tracker data from server
+    const serverPeriodDates = data.periodDates || {};
+    const serverMoods = data.moods || {};
+    
+    console.log('=== PERIOD & MOOD SYNC DEBUG ===');
+    console.log('Server period dates:', Object.keys(serverPeriodDates).length, 'dates');
+    console.log('Server moods:', Object.keys(serverMoods).length, 'users');
+    
+    // Use server data if available, otherwise keep local
+    if (forceClean || Object.keys(serverPeriodDates).length > 0) {
+      periodDates = serverPeriodDates;
+      localStorage.setItem('ritual_period_dates', JSON.stringify(periodDates));
+      console.log('✓ Period dates updated from server');
+    }
+    
+    if (forceClean || Object.keys(serverMoods).length > 0) {
+      moods = serverMoods;
+      // Ensure structure
+      if(!moods.satish) moods.satish = {};
+      if(!moods.keerthisri) moods.keerthisri = {};
+      if(!moods.geetanath) moods.geetanath = {};
+      localStorage.setItem('ritual_moods', JSON.stringify(moods));
+      console.log('✓ Mood data updated from server');
+    }
+    
+    // Refresh period and mood views if they're visible
+    if (document.querySelector('.view.active')?.id === 'periodView') renderPeriodCalendar();
+    if (document.querySelector('.view.active')?.id === 'moodView') {
+      renderMoodPicker();
+      renderMoodHistory();
+    }
     
     // Count quantity logs for visible status message
     const qtyLogCount = Object.keys(qtyLogs).reduce((sum, hid) => sum + Object.keys(qtyLogs[hid] || {}).length, 0);
@@ -2102,9 +2154,19 @@ function loadPeriodData(){
   }
 }
 
-function savePeriodData(){
+async function savePeriodData(){
   try {
     localStorage.setItem('ritual_period_dates', JSON.stringify(periodDates));
+    
+    // Sync to Google Sheets if configured
+    if (SCRIPT_URL) {
+      try {
+        await api({action: 'savePeriodData', periodDates: periodDates});
+        console.log('✓ Period data synced to Google Sheets');
+      } catch(e) {
+        console.warn('Failed to sync period data to sheets:', e);
+      }
+    }
   } catch(e) {
     console.error('Failed to save period data:', e);
   }
@@ -2236,9 +2298,19 @@ function loadMoodData(){
   }
 }
 
-function saveMoodData(){
+async function saveMoodData(){
   try {
     localStorage.setItem('ritual_moods', JSON.stringify(moods));
+    
+    // Sync to Google Sheets if configured
+    if (SCRIPT_URL) {
+      try {
+        await api({action: 'saveMoodData', moods: moods});
+        console.log('✓ Mood data synced to Google Sheets');
+      } catch(e) {
+        console.warn('Failed to sync mood data to sheets:', e);
+      }
+    }
   } catch(e) {
     console.error('Failed to save mood data:', e);
   }
