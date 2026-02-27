@@ -330,6 +330,9 @@ textarea:focus,input[type=text]:focus,input[type=number]:focus{border-color:var(
       <div class="sync-dot" id="syncDot"></div>
       <span id="syncText">Not synced</span>
     </div>
+    <div class="data-health" id="dataHealth" title="Data storage usage" style="margin-top:6px;padding:6px 10px;background:rgba(255,255,255,.05);border-radius:8px;font-size:.75rem;display:flex;align-items:center;gap:6px;cursor:pointer" onclick="manualArchivePlanner()">
+      <span style="font-size:1rem">🟢</span> <span style="font-size:.72rem;color:var(--text)">Loading...</span>
+    </div>
   </div>
 </aside>
 
@@ -780,6 +783,88 @@ function persist(){
   }
 }
 
+// IMAGE COMPRESSION - Compress before storing to avoid exceeding Google Sheets 50K char/cell limit
+async function compressImage(file, maxWidth=1200, quality=0.8){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=e=>{
+      const img=new Image();
+      img.onload=()=>{
+        const canvas=document.createElement('canvas');
+        let width=img.width;
+        let height=img.height;
+        if(width>maxWidth){
+          height=(height*maxWidth)/width;
+          width=maxWidth;
+        }
+        canvas.width=width;
+        canvas.height=height;
+        const ctx=canvas.getContext('2d');
+        ctx.drawImage(img,0,0,width,height);
+        const compressed=canvas.toDataURL('image/jpeg',quality);
+        console.log(`📸 Compressed: ${Math.round(e.target.result.length/1024)}KB → ${Math.round(compressed.length/1024)}KB`);
+        resolve(compressed);
+      };
+      img.onerror=reject;
+      img.src=e.target.result;
+    };
+    reader.onerror=reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+// DATA SIZE MONITORING
+function calculateDataSize(){
+  const jsonStr=JSON.stringify(db);
+  const sizeKB=Math.round((jsonStr.length*2)/1024); // UTF-16 = 2 bytes per char
+  const sizeMB=(sizeKB/1024).toFixed(2);
+  const maxMB=7; // Conservative limit (Google Sheets ~10MB, leave buffer)
+  const percentage=Math.round((sizeMB/maxMB)*100);
+  return{sizeKB,sizeMB,percentage,maxMB};
+}
+function getDataHealthStatus(){
+  const{percentage,sizeMB,maxMB}=calculateDataSize();
+  if(percentage>=95)return{level:'critical',icon:'🔴',text:`${sizeMB}MB / ${maxMB}MB (${percentage}%)`,msg:'Database almost full! Auto-archiving recommended.'};
+  if(percentage>=90)return{level:'warning',icon:'🟠',text:`${sizeMB}MB / ${maxMB}MB (${percentage}%)`,msg:'Database filling up. Consider archiving old data.'};
+  if(percentage>=70)return{level:'caution',icon:'🟡',text:`${sizeMB}MB / ${maxMB}MB (${percentage}%)`,msg:'Database usage is moderate.'};
+  return{level:'ok',icon:'🟢',text:`${sizeMB}MB / ${maxMB}MB (${percentage}%)`,msg:'Database healthy'};
+}
+function updateDataHealthUI(){
+  const health=getDataHealthStatus();
+  const indicator=document.getElementById('dataHealth');
+  if(indicator){
+    indicator.innerHTML=`<span style="font-size:1rem">${health.icon}</span> <span style="font-size:.72rem;color:var(--text)">${health.text}</span>`;
+    indicator.title=health.msg;
+  }
+  // Auto-archive if critical
+  if(health.level==='critical'){
+    console.warn('🔴 Data critical! Triggering auto-archive...');
+    autoArchiveOldData();
+  }
+}
+
+// AUTO-ARCHIVE OLD DATA (>1 year)
+async function autoArchiveOldData(){
+  try{
+    const cutoffDate=new Date();
+    cutoffDate.setFullYear(cutoffDate.getFullYear()-1);
+    const cutoffStr=cutoffDate.toISOString().split('T')[0];
+    console.log('📦 Auto-archiving data older than',cutoffStr);
+    const result=await plannerAPI({action:'archiveOldData',cutoffDate:cutoffStr});
+    toast('✓ Archived old data: '+result.message);
+    // Reload from sheets to get cleaned data
+    await loadFromSheets();
+    updateDataHealthUI();
+  }catch(e){
+    console.error('❌ Auto-archive failed:',e);
+    toast('⚠️ Archive failed: '+e.message);
+  }
+}
+async function manualArchivePlanner(){
+  if(!confirm('Archive data older than 1 year?\n\nThis will move old entries to a separate archive key in Google Sheets.'))return;
+  await autoArchiveOldData();
+}
+
 // SYNC FUNCTIONS
 let isSyncing=false;
 // Force immediate sync (bypasses debounce) - use for explicit save actions
@@ -833,6 +918,7 @@ async function syncToSheets(){
     console.log('✅ Sync successful:', result);
     setSyncStatus('ok','Synced · '+new Date().toLocaleTimeString());
     toast('✓ Synced '+result.saved+' entries');
+    updateDataHealthUI(); // Update size after sync
   }catch(e){
     console.error('❌ Sync failed:',e);
     setSyncStatus('err','Sync failed');
@@ -877,6 +963,7 @@ async function loadFromSheets(){
     setSyncStatus('ok','Synced · '+new Date().toLocaleTimeString());
     toast('✓ Synced with Google Sheets');
     updateAll();
+    updateDataHealthUI(); // Update size display after loading
   }catch(e){
     console.error('Load failed:',e);
     setSyncStatus('err','Sync failed: '+e.message);
@@ -1623,15 +1710,24 @@ function rPlacedStickers(){
 }
 
 // IMAGE UPLOAD - KEY FIX: use onchange on hidden input, label triggers it correctly
-function hDayImgs(inp){
+// UPDATED: Now uses compression to prevent exceeding Google Sheets cell limits
+async function hDayImgs(inp){
   if(!db[mkd(aDay)])db[mkd(aDay)]={};
   if(!db[mkd(aDay)].imgs)db[mkd(aDay)].imgs=[];
   const strip=document.getElementById('modal-imgs');
-  Array.from(inp.files).forEach(f=>{
-    const r=new FileReader();
-    r.onload=e=>{db[mkd(aDay)].imgs.push(e.target.result);persist();strip.appendChild(mkThumb(e.target.result,db[mkd(aDay)].imgs.length-1,'daystrip'))};
-    r.readAsDataURL(f);
-  });
+  const files=Array.from(inp.files);
+  for(const f of files){
+    try{
+      const compressed=await compressImage(f);
+      db[mkd(aDay)].imgs.push(compressed);
+      persist();
+      strip.appendChild(mkThumb(compressed,db[mkd(aDay)].imgs.length-1,'daystrip'));
+      updateDataHealthUI();
+    }catch(e){
+      console.error('Image compression failed:',e);
+      toast('⚠️ Image upload failed');
+    }
+  }
   inp.value=''; // reset so same file can be re-added
 }
 
@@ -1642,24 +1738,41 @@ function ivNav(d){ivIdx=(ivIdx+d+ivSrcs.length)%ivSrcs.length;document.getElemen
 function ivBg(e){if(e.target===document.getElementById('iv'))closeIV()}
 
 // IMAGE HELPERS - label/input approach prevents double-click issue
-function hImgs(sid,inp){
+// UPDATED: Now uses compression for all monthly images
+async function hImgs(sid,inp){
   const strip=document.getElementById(sid);
   const arr=gM(sid)||[];
-  Array.from(inp.files).forEach(f=>{
-    const r=new FileReader();
-    r.onload=e=>{arr.push(e.target.result);sM(sid,arr);strip.appendChild(mkThumb(e.target.result,arr.length-1,sid))};
-    r.readAsDataURL(f);
-  });
+  const files=Array.from(inp.files);
+  for(const f of files){
+    try{
+      const compressed=await compressImage(f);
+      arr.push(compressed);
+      sM(sid,arr);
+      strip.appendChild(mkThumb(compressed,arr.length-1,sid));
+      updateDataHealthUI();
+    }catch(e){
+      console.error('Image compression failed:',e);
+      toast('⚠️ Image upload failed');
+    }
+  }
   inp.value='';
 }
-function hYImgs(sid,inp){
+async function hYImgs(sid,inp){
   const strip=document.getElementById(sid);
   const arr=gY(sid)||[];
-  Array.from(inp.files).forEach(f=>{
-    const r=new FileReader();
-    r.onload=e=>{arr.push(e.target.result);sY(sid,arr);strip.appendChild(mkThumb(e.target.result,arr.length-1,sid))};
-    r.readAsDataURL(f);
-  });
+  const files=Array.from(inp.files);
+  for(const f of files){
+    try{
+      const compressed=await compressImage(f);
+      arr.push(compressed);
+      sY(sid,arr);
+      strip.appendChild(mkThumb(compressed,arr.length-1,sid));
+      updateDataHealthUI();
+    }catch(e){
+      console.error('Image compression failed:',e);
+      toast('⚠️ Image upload failed');
+    }
+  }
   inp.value='';
 }
 function mkThumb(src,idx,gk,day){
@@ -2084,18 +2197,28 @@ function rVBoard(){
   });
 }
 function addVBWord(){const inp=document.getElementById('vb-word-inp');const w=inp.value.trim();if(!w)return;const a=gY('vb-words')||[];a.push(w);sY('vb-words',a);inp.value='';rVBoard()}
-function hVBImgs(inp){
+async function hVBImgs(inp){
   const strip=document.getElementById('vb-full-imgs');
-  Array.from(inp.files).forEach(f=>{const r=new FileReader();r.onload=e=>{
-    const arr=gY('vb-full-imgs')||[];arr.push(e.target.result);sY('vb-full-imgs',arr);
-    const wrap=document.createElement('div');wrap.className='vb-img-wrap';
-    const img=document.createElement('img');img.className='vb-full-img';img.src=e.target.result;
-    img.onclick=()=>openIV(gY('vb-full-imgs')||[],arr.length-1);
-    const delBtn=document.createElement('div');delBtn.className='vb-img-del';delBtn.innerHTML='✕';delBtn.title='Delete image';
-    const idx=arr.length-1;
-    delBtn.onclick=ev=>{ev.stopPropagation();if(confirm('Delete this image?')){const a=gY('vb-full-imgs')||[];a.splice(idx,1);sY('vb-full-imgs',a);rVBoard();}};
-    wrap.appendChild(img);wrap.appendChild(delBtn);strip.appendChild(wrap);
-  };r.readAsDataURL(f)});
+  const files=Array.from(inp.files);
+  for(const f of files){
+    try{
+      const compressed=await compressImage(f);
+      const arr=gY('vb-full-imgs')||[];
+      arr.push(compressed);
+      sY('vb-full-imgs',arr);
+      const wrap=document.createElement('div');wrap.className='vb-img-wrap';
+      const img=document.createElement('img');img.className='vb-full-img';img.src=compressed;
+      img.onclick=()=>openIV(gY('vb-full-imgs')||[],arr.length-1);
+      const delBtn=document.createElement('div');delBtn.className='vb-img-del';delBtn.innerHTML='✕';delBtn.title='Delete image';
+      const idx=arr.length-1;
+      delBtn.onclick=ev=>{ev.stopPropagation();if(confirm('Delete this image?')){const a=gY('vb-full-imgs')||[];a.splice(idx,1);sY('vb-full-imgs',a);rVBoard();}};
+      wrap.appendChild(img);wrap.appendChild(delBtn);strip.appendChild(wrap);
+      updateDataHealthUI();
+    }catch(e){
+      console.error('Image compression failed:',e);
+      toast('⚠️ Image upload failed');
+    }
+  }
   inp.value='';
 }
 
@@ -2139,6 +2262,7 @@ function rYReflect(){
 // INIT
 load();
 cleanupCorruptedKeys(); // Fix any corrupted keys from old code versions
+updateDataHealthUI(); // Show data usage stats
 const now=new Date();cY=now.getFullYear();cM=now.getMonth();
 const dayOfWeek=now.getDay();
 const mondayOffset=dayOfWeek===0?6:dayOfWeek-1;

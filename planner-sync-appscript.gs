@@ -53,6 +53,14 @@ function doPost(e) {
         return response(saveKeyData('ritual_period_dates', payload.periodDates));
       case 'saveMoodData':
         return response(saveKeyData('ritual_moods', payload.moods));
+      case 'archiveOldData':
+        result = archiveOldData(payload.cutoffDate);
+        Logger.log('archiveOldData completed: ' + JSON.stringify(result));
+        return response(result);
+      case 'restoreFromArchive':
+        result = restoreFromArchive(payload.year);
+        Logger.log('restoreFromArchive completed: ' + JSON.stringify(result));
+        return response(result);
       default:
         Logger.log('Unknown action: ' + action);
         return response(null, 'Unknown action: ' + action);
@@ -287,6 +295,107 @@ function getKeyData(key) {
 // Helper function to save data for a specific key
 function saveKeyData(key, data) {
   return saveSingleEntry(key, data);
+}
+
+// Archive old data (move entries older than cutoff to archive key)
+function archiveOldData(cutoffDate) {
+  Logger.log('▶ archiveOldData called with cutoff: ' + cutoffDate);
+  
+  const sheet = getSheet();
+  const cutoff = new Date(cutoffDate);
+  const allData = getAllPlannerData();
+  const keysToArchive = [];
+  const archivedData = {};
+  
+  // Find keys older than cutoff
+  Object.keys(allData).forEach(key => {
+    // Skip special keys that shouldn't be archived
+    if (key.startsWith('ritual_') || key === 'planner_script_url' || key === 'notion_') {
+      return;
+    }
+    
+    // Parse date from key (format: YYYY-MM, YYYY-MM-DD, YYYY-MM-wN, yr-YYYY, yrR-YYYY)
+    const dateMatch = key.match(/^(\d{4})-(\d{2})/);
+    if (dateMatch) {
+      const year = parseInt(dateMatch[1]);
+      const month = parseInt(dateMatch[2]);
+      const keyDate = new Date(year, month - 1, 1);
+      
+      if (keyDate < cutoff) {
+        keysToArchive.push(key);
+        archivedData[key] = allData[key];
+      }
+    }
+  });
+  
+  Logger.log('Found ' + keysToArchive.length + ' keys to archive');
+  
+  if (keysToArchive.length === 0) {
+    return { archived: 0, message: 'No old data to archive' };
+  }
+  
+  // Get existing archive or create new
+  let archive = getKeyData('planner_archive') || {};
+  
+  // Add to archive
+  keysToArchive.forEach(key => {
+    archive[key] = archivedData[key];
+  });
+  
+  // Save updated archive
+  saveKeyData('planner_archive', archive);
+  
+  // Remove archived keys from main storage
+  keysToArchive.forEach(key => {
+    delete allData[key];
+  });
+  
+  // Save cleaned data
+  saveAllPlannerData(allData);
+  
+  Logger.log('✓ Archived ' + keysToArchive.length + ' entries');
+  
+  return {
+    archived: keysToArchive.length,
+    keys: keysToArchive,
+    message: 'Archived ' + keysToArchive.length + ' old entries'
+  };
+}
+
+// Restore archived data for a specific year
+function restoreFromArchive(year) {
+  Logger.log('▶ restoreFromArchive called for year: ' + year);
+  
+  const archive = getKeyData('planner_archive') || {};
+  const allData = getAllPlannerData();
+  const keysToRestore = [];
+  
+  // Find keys matching the year
+  Object.keys(archive).forEach(key => {
+    if (key.startsWith(year + '-') || key.startsWith('yr-' + year) || key.startsWith('yrR-' + year)) {
+      keysToRestore.push(key);
+      allData[key] = archive[key];
+      delete archive[key];
+    }
+  });
+  
+  if (keysToRestore.length === 0) {
+    return { restored: 0, message: 'No archived data found for ' + year };
+  }
+  
+  // Save updated archive
+  saveKeyData('planner_archive', archive);
+  
+  // Save restored data
+  saveAllPlannerData(allData);
+  
+  Logger.log('✓ Restored ' + keysToRestore.length + ' entries for ' + year);
+  
+  return {
+    restored: keysToRestore.length,
+    keys: keysToRestore,
+    message: 'Restored ' + keysToRestore.length + ' entries from archive'
+  };
 }
 
 // Optional: Clean up old data (for maintenance)
