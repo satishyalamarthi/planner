@@ -714,19 +714,23 @@ function cleanupCorruptedKeys(){
         const monthProps=['mantra','mantra-why','mantra-imgs',
                           'hl-proud','hl-mem','hl-lrn','hl-grw','hl-grat','hl-nxt','hl-imgs',
                           'learn','learn-imgs','tasks','todo-imgs',
+                          'td-done','td-doing','td-plan',
                           'events','dates','bdays','dates-imgs',
                           'notes','notes-imgs'];
         
         monthProps.forEach(prop=>{
           if(dayData[prop]!==undefined){
-            // Only migrate if month data doesn't already have this property
+            // Prefer month data if both exist, otherwise migrate
             if(!db[monthKey][prop]){
               db[monthKey][prop]=dayData[prop];
               console.log(`✓ Migrated ${prop} from ${dayKey} to ${monthKey}`);
               fixed++;
+            }else{
+              console.log(`⚠️ Removing duplicate ${prop} from ${dayKey} (month key has it)`);
             }
-            // Remove from day data
+            // Always remove from day data (it doesn't belong there)
             delete dayData[prop];
+            fixed++;
           }
         });
         
@@ -2348,10 +2352,26 @@ window.debugPlanner = function() {
   console.log('Is syncing:', isSyncing);
   console.log('\nTo manually sync, run: forceSyncToSheets()');
   console.log('To reload from sheets, run: loadFromSheets()');
+  console.log('To fix duplicates, run: fixDuplicateData()');
   return { db, keys: Object.keys(db), totalEntries: Object.keys(db).length };
 };
 
+window.fixDuplicateData = function() {
+  console.log('🔧 Running cleanup to fix duplicate data...');
+  const fixed = cleanupCorruptedKeys();
+  if(fixed) {
+    console.log('✅ Fixed duplicate data. Syncing to Google Sheets...');
+    forceSyncToSheets();
+    toast('✓ Fixed duplicate data and synced!');
+  } else {
+    console.log('✓ No duplicates found');
+    toast('✓ No duplicates found');
+  }
+  return fixed;
+};
+
 console.log('💡 Type debugPlanner() in console for debug info');
+console.log('💡 Type fixDuplicateData() to fix any duplicate data issues');
 
 // Force sync before closing/refreshing page
 window.addEventListener('beforeunload',()=>{
