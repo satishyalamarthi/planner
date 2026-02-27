@@ -93,6 +93,10 @@ function response(data, error) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+// Constants for data splitting
+const MAX_CELL_SIZE = 45000; // Safe limit below Google's 50K char limit
+const SPLIT_SUFFIX = '_part'; // Suffix for split data parts
+
 // Get or create the PlannerData sheet
 function getSheet() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -114,6 +118,77 @@ function getSheet() {
   return sheet;
 }
 
+// Helper function to split large data into chunks
+function splitLargeData(key, valueStr) {
+  if (valueStr.length <= MAX_CELL_SIZE) {
+    return [[key, valueStr]];
+  }
+  
+  Logger.log('⚠️ Key "' + key + '" exceeds ' + MAX_CELL_SIZE + ' chars (' + valueStr.length + ' chars). Splitting...');
+  
+  const parts = [];
+  let partNum = 1;
+  
+  // First part uses original key
+  parts.push([key, valueStr.substring(0, MAX_CELL_SIZE)]);
+  
+  // Additional parts use _part2, _part3, etc.
+  for (let i = MAX_CELL_SIZE; i < valueStr.length; i += MAX_CELL_SIZE) {
+    partNum++;
+    const chunk = valueStr.substring(i, Math.min(i + MAX_CELL_SIZE, valueStr.length));
+    parts.push([key + SPLIT_SUFFIX + partNum, chunk]);
+  }
+  
+  Logger.log('✓ Split into ' + parts.length + ' parts');
+  return parts;
+}
+
+// Helper function to merge split data parts
+function mergeSplitData(data) {
+  const merged = {};
+  const processedKeys = new Set();
+  
+  Object.keys(data).forEach(key => {
+    // Skip if already processed as part of a split
+    if (processedKeys.has(key)) return;
+    
+    // Check if this key has split parts
+    if (key.includes(SPLIT_SUFFIX)) {
+      // This is a part key, skip it (will be handled by base key)
+      return;
+    }
+    
+    // Check if there are additional parts
+    let fullValue = data[key];
+    let partNum = 2;
+    let foundParts = false;
+    
+    while (data[key + SPLIT_SUFFIX + partNum]) {
+      if (!foundParts) {
+        Logger.log('🔗 Merging split data for key: ' + key);
+        foundParts = true;
+      }
+      fullValue += data[key + SPLIT_SUFFIX + partNum];
+      processedKeys.add(key + SPLIT_SUFFIX + partNum);
+      partNum++;
+    }
+    
+    if (foundParts) {
+      Logger.log('✓ Merged ' + (partNum - 1) + ' parts for "' + key + '" (' + fullValue.length + ' chars)');
+    }
+    
+    // Parse the merged JSON
+    try {
+      merged[key] = JSON.parse(fullValue);
+    } catch(e) {
+      Logger.log('❌ Failed to parse merged data for key: ' + key);
+      merged[key] = fullValue; // Keep as string if parsing fails
+    }
+  });
+  
+  return merged;
+}
+
 // Get all planner data from the sheet
 function getAllPlannerData() {
   const sheet = getSheet();
@@ -124,20 +199,20 @@ function getAllPlannerData() {
   }
   
   const data = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
-  const plannerData = {};
+  const rawData = {};
   
+  // First pass: collect all data (including split parts as strings)
   data.forEach(row => {
     const key = row[0];
     const valueStr = row[1];
     
     if (key && valueStr) {
-      try {
-        plannerData[key] = JSON.parse(valueStr);
-      } catch(e) {
-        Logger.log('Failed to parse value for key: ' + key);
-      }
+      rawData[key] = valueStr;
     }
   });
+  
+  // Second pass: merge split data and parse JSON
+  const plannerData = mergeSplitData(rawData);
   
   return plannerData;
 }
@@ -160,18 +235,27 @@ function saveAllPlannerData(data) {
     Logger.log('✓ Cleared ' + (lastRow - 1) + ' existing rows');
   }
   
-  // Convert data object to rows
+  // Convert data object to rows (with automatic splitting for large entries)
   const rows = [];
   const dataKeys = Object.keys(data || {});
   Logger.log('Processing ' + dataKeys.length + ' data keys');
   
   let tasksCount = 0;
   let learnCount = 0;
+  let splitCount = 0;
   
   dataKeys.forEach(key => {
     const value = data[key];
     const valueStr = JSON.stringify(value);
-    rows.push([key, valueStr, timestamp]);
+    
+    // Check size and split if needed
+    const parts = splitLargeData(key, valueStr);
+    if (parts.length > 1) splitCount++;
+    
+    // Add all parts to rows
+    parts.forEach(([partKey, partValue]) => {
+      rows.push([partKey, partValue, timestamp]);
+    });
     
     // Log tasks and learn data specifically
     if (value && typeof value === 'object') {
@@ -189,7 +273,8 @@ function saveAllPlannerData(data) {
     }
   });
   
-  Logger.log('✓ Prepared ' + rows.length + ' rows');
+  Logger.log('✓ Prepared ' + rows.length + ' rows (' + dataKeys.length + ' entries)');
+  if (splitCount > 0) Logger.log('📦 Split ' + splitCount + ' large entries across multiple cells');
   if (tasksCount > 0) Logger.log('✓ Found tasks data in ' + tasksCount + ' keys');
   if (learnCount > 0) Logger.log('✓ Found learn data in ' + learnCount + ' keys');
   
@@ -213,29 +298,39 @@ function saveSingleEntry(key, value) {
   const timestamp = getISTTimestamp();
   const valueStr = JSON.stringify(value);
   
-  // Find if key already exists
+  // Check if data needs to be split
+  const parts = splitLargeData(key, valueStr);
+  
+  // Find and delete existing entries (including any old split parts)
   const lastRow = sheet.getLastRow();
-  let rowIndex = -1;
+  const keysToDelete = [];
   
   if (lastRow > 1) {
     const keys = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
     for (let i = 0; i < keys.length; i++) {
-      if (keys[i][0] === key) {
-        rowIndex = i + 2; // +2 because of 0-index and header row
-        break;
+      const existingKey = keys[i][0];
+      // Delete base key or any of its parts
+      if (existingKey === key || existingKey.startsWith(key + SPLIT_SUFFIX)) {
+        keysToDelete.push(i + 2); // +2 for 0-index and header row
       }
     }
   }
   
-  if (rowIndex > 0) {
-    // Update existing row
-    sheet.getRange(rowIndex, 2, 1, 2).setValues([[valueStr, timestamp]]);
-  } else {
-    // Add new row
-    sheet.appendRow([key, valueStr, timestamp]);
-  }
+  // Delete old entries in reverse order
+  keysToDelete.reverse().forEach(rowNum => {
+    sheet.deleteRow(rowNum);
+  });
   
-  return { key: key, updated: timestamp };
+  // Add new entry (or multiple parts)
+  parts.forEach(([partKey, partValue]) => {
+    sheet.appendRow([partKey, partValue, timestamp]);
+  });
+  
+  return { 
+    key: key, 
+    updated: timestamp,
+    parts: parts.length > 1 ? parts.length : undefined
+  };
 }
 
 // Toggle a habit completion status
@@ -307,18 +402,45 @@ function getKeyData(key) {
   
   const keys = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
   
+  // Collect base key and any parts
+  let valueStr = null;
+  const parts = {};
+  
   for (let i = 0; i < keys.length; i++) {
-    if (keys[i][0] === key) {
-      try {
-        return JSON.parse(keys[i][1]);
-      } catch(e) {
-        Logger.log('Failed to parse value for key: ' + key);
-        return null;
+    const rowKey = keys[i][0];
+    const rowValue = keys[i][1];
+    
+    // Found base key
+    if (rowKey === key) {
+      valueStr = rowValue;
+    }
+    // Found a part of this key
+    else if (rowKey.startsWith(key + SPLIT_SUFFIX)) {
+      const partMatch = rowKey.match(new RegExp(key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + SPLIT_SUFFIX + '(\\d+)'));
+      if (partMatch) {
+        parts[parseInt(partMatch[1])] = rowValue;
       }
     }
   }
   
-  return null;
+  if (valueStr === null) return null;
+  
+  // Merge parts if any exist
+  if (Object.keys(parts).length > 0) {
+    const partNumbers = Object.keys(parts).map(n => parseInt(n)).sort((a, b) => a - b);
+    partNumbers.forEach(partNum => {
+      valueStr += parts[partNum];
+    });
+    Logger.log('🔗 Merged ' + (partNumbers.length + 1) + ' parts for key: ' + key);
+  }
+  
+  // Parse and return
+  try {
+    return JSON.parse(valueStr);
+  } catch(e) {
+    Logger.log('Failed to parse value for key: ' + key);
+    return null;
+  }
 }
 
 // Helper function to save data for a specific key
@@ -340,6 +462,11 @@ function archiveOldData(cutoffDate) {
   Object.keys(allData).forEach(key => {
     // Skip special keys that shouldn't be archived
     if (key.startsWith('ritual_') || key === 'planner_script_url' || key.startsWith('notion_')) {
+      return;
+    }
+    
+    // Skip split data parts (they'll be handled with their base key)
+    if (key.includes(SPLIT_SUFFIX)) {
       return;
     }
     
@@ -478,4 +605,11 @@ function cleanupOldData() {
  * - Weekly data: Key = "YYYY-MM-wN", Value = {plan, jrnl, items, etc.}
  * - Yearly vision: Key = "yr-YYYY", Value = {vb-title, vb-sections, etc.}
  * - Year reflection: Key = "yrR-YYYY", Value = {yr-1 through yr-6, imgs}
+ * 
+ * AUTOMATIC DATA SPLITTING:
+ * - Large entries (>45K chars) are automatically split across multiple rows
+ * - Split parts use keys like: "2026-02_part2", "2026-02_part3", etc.
+ * - Data is seamlessly merged when loading - completely transparent to the user
+ * - This bypasses Google Sheets 50K character per cell limit
+ * - No limit on journal entry size! Write as much as you want.
  */
