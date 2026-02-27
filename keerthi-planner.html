@@ -1006,13 +1006,16 @@ async function loadFromSheets(){
       }
     }else if(serverKeys>0){
       // Server has data
+      console.log('📥 Server has data. Processing...');
       if(localKeys===0){
         // New device: use server data completely
         db=serverData;
         console.log(`Initial sync: Loaded ${serverKeys} items from Google Sheets`);
+        console.log('Server data keys:', Object.keys(serverData));
       }else{
         // Smart merge: Combine server and local, preferring server for freshness
         // Deep merge each key - if server has data for a key, use it unless local is empty
+        console.log('Merging server and local data...');
         const merged={};
         // Start with all server keys
         Object.keys(serverData).forEach(key=>{
@@ -1031,6 +1034,7 @@ async function loadFromSheets(){
         });
         db=merged;
         console.log(`Smart merge: ${serverKeys} server items, ${localKeys} local items → ${Object.keys(db).length} total`);
+        console.log('Merged data keys:', Object.keys(db));
       }
       // Clean up any corrupted keys from the server data
       const hadCorruption=cleanupCorruptedKeys();
@@ -1043,14 +1047,34 @@ async function loadFromSheets(){
       // Both empty - nothing to do
       console.log('Both cloud and local are empty');
     }
+    
+    // Log what was loaded for debugging
+    console.log('📊 Data loaded from sheets. Keys in db:', Object.keys(db));
+    console.log('📅 Current month key:', mk());
+    const monthData = db[mk()];
+    if(monthData) {
+      console.log('✓ Month data found:', Object.keys(monthData));
+    } else {
+      console.warn('⚠️ No data found for current month:', mk());
+    }
+    
     setSyncStatus('ok','Synced · '+new Date().toLocaleTimeString());
     toast('✓ Synced with Google Sheets');
+    
+    // Force render ALL pages regardless of which page is active
+    console.log('🔄 Refreshing all pages...');
     updateAll(); // Refresh current page
-    // Pre-render other pages so data appears when you navigate to them
-    if(actPg()!=='tasks')rTasks();
-    if(actPg()!=='dates')rDates();
-    if(actPg()!=='notes')rNotes();
-    if(actPg()!=='hl')rHL();
+    rTasks();
+    rDates();
+    rNotes();
+    rHL();
+    rMantra();
+    console.log('✓ All pages refreshed');
+    
+    // Debug: Show what we have after sync
+    console.log('=== POST-SYNC DEBUG ===');
+   debugPlanner();
+    
     updateDataHealthUI(); // Update size display after loading
   }catch(e){
     console.error('Load failed:',e);
@@ -1973,8 +1997,22 @@ function rMantra(){document.getElementById('mantra-t').value=gM('mantra')||'';do
 
 // TASKS (todos + learn)
 function rTasks(){
+  console.log('🔄 rTasks() called');
+  console.log('  Month key:', mk());
+  console.log('  Month data exists:', !!db[mk()]);
+  if(db[mk()]) {
+    console.log('  Has td-must:', !!db[mk()]['td-must']);
+    console.log('  Has td-next:', !!db[mk()]['td-next']);
+    console.log('  Has td-nice:', !!db[mk()]['td-nice']);
+    console.log('  Has learn:', !!db[mk()]['learn']);
+  }
   ['must','next','nice'].forEach(col=>{
-    const c=document.getElementById('td-'+col);c.innerHTML='';
+    const c=document.getElementById('td-'+col);
+    if(!c) {
+      console.warn('  Element not found: td-' + col);
+      return;
+    }
+    c.innerHTML='';
     (gM('td-'+col)||[]).forEach((it,i)=>{
       const d=document.createElement('div');d.className='ti'+(it.done?' di':'');
       const cb=document.createElement('input');cb.type='checkbox';cb.checked=!!it.done;
@@ -2499,8 +2537,22 @@ window.fixDuplicateData = function() {
   return fixed;
 };
 
+window.refreshAllPages = function() {
+  console.log('🔄 Manually refreshing all pages...');
+  updateAll();
+  rTasks();
+  rDates();
+  rNotes();
+  rHL();
+  rMantra();
+  rCal();
+  console.log('✓ All pages refreshed');
+  toast('✓ All pages refreshed');
+};
+
 console.log('💡 Type debugPlanner() in console for debug info');
 console.log('💡 Type fixDuplicateData() to fix any duplicate data issues');
+console.log('💡 Type refreshAllPages() to force refresh all pages');
 
 // Force sync before closing/refreshing page
 window.addEventListener('beforeunload',()=>{
