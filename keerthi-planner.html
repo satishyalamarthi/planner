@@ -343,6 +343,7 @@ textarea:focus,input[type=text]:focus,input[type=number]:focus{border-color:var(
     <input type="text" id="plannerScriptUrl" placeholder="https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec">
     <div class="sync-modal-btns">
       <button class="modal-btn-secondary" onclick="closeSyncSettings()">Cancel</button>
+      <button class="modal-btn-secondary" onclick="clearAllLocalData()" style="background:linear-gradient(135deg,#ff4444,#cc0000);color:#fff">🗑️ Clear Local Data</button>
       <button class="modal-btn-secondary" onclick="manualSyncFromCloud()" style="background:linear-gradient(135deg,var(--blue),var(--teal))">🔄 Refresh from Cloud</button>
       <button class="modal-btn-primary" onclick="savePlannerScriptUrl()">💾 Save & Sync</button>
     </div>
@@ -937,12 +938,26 @@ async function loadFromSheets(){
   setSyncStatus('syncing','Syncing…');
   try{
     const serverData=await plannerAPI({action:'getAll'});
-    if(serverData&&Object.keys(serverData).length>0){
-      // Check if local storage is empty (new device)
-      const localKeys=Object.keys(db).length;
-      const serverKeys=Object.keys(serverData).length;
-      
-      if(localKeys===0&&serverKeys>0){
+    const serverKeys=Object.keys(serverData||{}).length;
+    const localKeys=Object.keys(db).length;
+    
+    if(serverKeys===0&&localKeys>0){
+      // Server is empty but local has data - ask user what to do
+      const clearLocal=confirm('Google Sheets is empty, but you have local data.\n\n✓ OK = Clear local data (match empty cloud)\n✗ Cancel = Keep local data and push to cloud');
+      if(clearLocal){
+        // User wants to clear local to match empty cloud
+        db={};
+        localStorage.setItem(SK,JSON.stringify(db));
+        console.log('Cleared local data to match empty cloud');
+        toast('✓ Local data cleared');
+      }else{
+        // User wants to keep local and push to cloud
+        console.log('Keeping local data, will sync to cloud');
+        setTimeout(()=>forceSyncToSheets(),500);
+      }
+    }else if(serverKeys>0){
+      // Server has data
+      if(localKeys===0){
         // New device: use server data completely
         db=serverData;
         console.log(`Initial sync: Loaded ${serverKeys} items from Google Sheets`);
@@ -959,6 +974,9 @@ async function loadFromSheets(){
         setTimeout(()=>forceSyncToSheets(),1000);
       }
       localStorage.setItem(SK,JSON.stringify(db));
+    }else{
+      // Both empty - nothing to do
+      console.log('Both cloud and local are empty');
     }
     setSyncStatus('ok','Synced · '+new Date().toLocaleTimeString());
     toast('✓ Synced with Google Sheets');
@@ -980,6 +998,17 @@ function openSyncSettings(){
 function closeSyncSettings(){
   const modal=document.getElementById('syncModal');
   if(modal)modal.classList.remove('show');
+}
+function clearAllLocalData(){
+  if(!confirm('⚠️ Clear ALL local planner data?\n\nThis will delete everything from your browser.\nMake sure your data is backed up in Google Sheets first!\n\n✓ OK = Delete all local data\n✗ Cancel = Keep data')){
+    return;
+  }
+  db={};
+  localStorage.setItem(SK,JSON.stringify(db));
+  updateAll();
+  updateDataHealthUI();
+  toast('🗑️ All local data cleared');
+  console.log('Local data cleared by user');
 }
 async function savePlannerScriptUrl(){
   const input=document.getElementById('plannerScriptUrl');
