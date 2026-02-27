@@ -647,10 +647,13 @@ function cleanupCorruptedKeys(){
     }
     
     // Check if key is a day key (yyyy-mm-dd) with month-level data
-    if(key.match(/^\d{4}-\d{2}-01$/)){
+    if(key.match(/^\d{4}-\d{2}-\d{2}$/)){
       const data=db[key];
-      // Check if it has month-level data (mantra, highlights, etc.)
+      // Check if it has month-level data (mantra, learn, dates, bdays, highlights, etc.)
       if(data&&(data.mantra||data['mantra-why']||data['mantra-imgs']||
+                data.learn||data['learn-imgs']||data.tasks||data['todo-imgs']||
+                data.events||data.dates||data.bdays||data['dates-imgs']||
+                data.notes||data['notes-imgs']||
                 data['hl-proud']||data['hl-mem']||data['hl-lrn']||
                 data['hl-grw']||data['hl-grat']||data['hl-nxt']||data['hl-imgs'])){
         monthDataToMigrate.push(key);
@@ -710,7 +713,9 @@ function cleanupCorruptedKeys(){
         // Migrate month-level properties
         const monthProps=['mantra','mantra-why','mantra-imgs',
                           'hl-proud','hl-mem','hl-lrn','hl-grw','hl-grat','hl-nxt','hl-imgs',
-                          'learn','learn-imgs','tasks','todo-imgs','notes'];
+                          'learn','learn-imgs','tasks','todo-imgs',
+                          'events','dates','bdays','dates-imgs',
+                          'notes','notes-imgs'];
         
         monthProps.forEach(prop=>{
           if(dayData[prop]!==undefined){

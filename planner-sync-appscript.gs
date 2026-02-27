@@ -15,11 +15,20 @@
  * This script will create a single sheet named "PlannerData" to store all planner entries
  */
 
+// Helper function to get Indian Standard Time (IST) timestamp
+function getISTTimestamp() {
+  const now = new Date();
+  // IST is UTC+5:30
+  const istOffset = 5.5 * 60 * 60 * 1000; // 5 hours 30 minutes in milliseconds
+  const istTime = new Date(now.getTime() + istOffset);
+  return istTime.toISOString().replace('Z', '+05:30');
+}
+
 // Main entry point for POST requests
 function doPost(e) {
   try {
     Logger.log('=== NEW REQUEST ===');
-    Logger.log('Timestamp: ' + new Date().toISOString());
+    Logger.log('Timestamp: ' + getISTTimestamp());
     
     const payload = JSON.parse(e.postData.contents);
     const action = payload.action;
@@ -78,7 +87,7 @@ function response(data, error) {
     ok: !error,
     data: data,
     error: error || null,
-    timestamp: new Date().toISOString()
+    timestamp: getISTTimestamp()
   };
   return ContentService.createTextOutput(JSON.stringify(output))
     .setMimeType(ContentService.MimeType.JSON);
@@ -138,7 +147,7 @@ function saveAllPlannerData(data) {
   Logger.log('▶ saveAllPlannerData called');
   
   const sheet = getSheet();
-  const timestamp = new Date().toISOString();
+  const timestamp = getISTTimestamp();
   
   Logger.log('✓ Sheet obtained: PlannerData');
   
@@ -181,7 +190,7 @@ function saveAllPlannerData(data) {
 // Save a single entry (for incremental updates)
 function saveSingleEntry(key, value) {
   const sheet = getSheet();
-  const timestamp = new Date().toISOString();
+  const timestamp = getISTTimestamp();
   const valueStr = JSON.stringify(value);
   
   // Find if key already exists
