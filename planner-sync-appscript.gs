@@ -165,13 +165,33 @@ function saveAllPlannerData(data) {
   const dataKeys = Object.keys(data || {});
   Logger.log('Processing ' + dataKeys.length + ' data keys');
   
+  let tasksCount = 0;
+  let learnCount = 0;
+  
   dataKeys.forEach(key => {
     const value = data[key];
     const valueStr = JSON.stringify(value);
     rows.push([key, valueStr, timestamp]);
+    
+    // Log tasks and learn data specifically
+    if (value && typeof value === 'object') {
+      if (value['td-done'] || value['td-doing'] || value['td-plan']) {
+        tasksCount++;
+        Logger.log('✓ Key "' + key + '" contains tasks:');
+        if (value['td-done']) Logger.log('  - td-done: ' + value['td-done'].length + ' items');
+        if (value['td-doing']) Logger.log('  - td-doing: ' + value['td-doing'].length + ' items');
+        if (value['td-plan']) Logger.log('  - td-plan: ' + value['td-plan'].length + ' items');
+      }
+      if (value['learn']) {
+        learnCount++;
+        Logger.log('✓ Key "' + key + '" contains learn: ' + value['learn'].length + ' items');
+      }
+    }
   });
   
   Logger.log('✓ Prepared ' + rows.length + ' rows');
+  if (tasksCount > 0) Logger.log('✓ Found tasks data in ' + tasksCount + ' keys');
+  if (learnCount > 0) Logger.log('✓ Found learn data in ' + learnCount + ' keys');
   
   if (rows.length > 0) {
     sheet.getRange(2, 1, rows.length, 3).setValues(rows);
@@ -319,7 +339,7 @@ function archiveOldData(cutoffDate) {
   // Find keys older than cutoff
   Object.keys(allData).forEach(key => {
     // Skip special keys that shouldn't be archived
-    if (key.startsWith('ritual_') || key === 'planner_script_url' || key === 'notion_') {
+    if (key.startsWith('ritual_') || key === 'planner_script_url' || key.startsWith('notion_')) {
       return;
     }
     
