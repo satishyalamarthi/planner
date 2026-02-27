@@ -637,6 +637,7 @@ function cleanupCorruptedKeys(){
   console.log('🔍 Checking for corrupted keys...');
   const keysToFix=[];
   const monthDataToMigrate=[];
+  const dailyDataInMonthKeys=[];
   
   // Find all keys that look like Date strings
   Object.keys(db).forEach(key=>{
@@ -644,6 +645,15 @@ function cleanupCorruptedKeys(){
     if(key.includes('GMT')||key.match(/(Mon|Tue|Wed|Thu|Fri|Sat|Sun)/)){
       keysToFix.push(key);
       console.log('Found corrupted key:', key);
+    }
+    
+    // Check if monthly key has daily-only data
+    if(key.match(/^\d{4}-\d{2}$/)){
+      const data=db[key];
+      if(data&&(data.note||data.grats||data.imgs||data.stickers)){
+        dailyDataInMonthKeys.push(key);
+        console.log('Found daily data in monthly key:', key);
+      }
     }
     
     // Check if key is a day key (yyyy-mm-dd) with month-level data
@@ -740,6 +750,36 @@ function cleanupCorruptedKeys(){
         }
       }catch(e){
         console.error('Failed to migrate month data:', dayKey, e);
+      }
+    });
+  }
+  
+  // Clean up daily data incorrectly saved to monthly keys
+  if(dailyDataInMonthKeys.length>0){
+    console.warn(`⚠️ Found ${dailyDataInMonthKeys.length} monthly keys with daily data. Removing...`);
+    
+    dailyDataInMonthKeys.forEach(monthKey=>{
+      try{
+        const monthData=db[monthKey];
+        
+        // Remove daily-only properties from monthly key
+        const dailyProps=['note','grats','imgs','stickers'];
+        
+        dailyProps.forEach(prop=>{
+          if(monthData[prop]!==undefined){
+            console.log(`⚠️ Removing daily property '${prop}' from monthly key ${monthKey}`);
+            console.log(`   Value was: ${JSON.stringify(monthData[prop]).substring(0,50)}...`);
+            delete monthData[prop];
+            fixed++;
+          }
+        });
+        
+        // If month data is now empty, remove the key
+        if(Object.keys(monthData).length===0){
+          delete db[monthKey];
+        }
+      }catch(e){
+        console.error('Failed to clean daily data from month key:', monthKey, e);
       }
     });
   }
@@ -1005,7 +1045,12 @@ async function loadFromSheets(){
     }
     setSyncStatus('ok','Synced · '+new Date().toLocaleTimeString());
     toast('✓ Synced with Google Sheets');
-    updateAll();
+    updateAll(); // Refresh current page
+    // Pre-render other pages so data appears when you navigate to them
+    if(actPg()!=='tasks')rTasks();
+    if(actPg()!=='dates')rDates();
+    if(actPg()!=='notes')rNotes();
+    if(actPg()!=='hl')rHL();
     updateDataHealthUI(); // Update size display after loading
   }catch(e){
     console.error('Load failed:',e);
@@ -1031,6 +1076,11 @@ function clearAllLocalData(){
   db={};
   localStorage.setItem(SK,JSON.stringify(db));
   updateAll();
+  rTasks();
+  rDates();
+  rNotes();
+  rHL();
+  rMantra();
   updateDataHealthUI();
   toast('🗑️ All local data cleared');
   console.log('Local data cleared by user');
@@ -1606,13 +1656,33 @@ async function exportPlannerPDF(){
 }
 
 function mk(){return`${cY}-${String(cM+1).padStart(2,'0')}`}
-function mkd(d){return`${mk()}-${String(d).padStart(2,'0')}`}
+function mkd(d){
+  // Validate day input
+  if(!d || d<1 || d>31){
+    console.error('Invalid day for mkd:', d);
+    return null;
+  }
+  return`${mk()}-${String(d).padStart(2,'0')}`;
+}
 function mkw(){return`${mk()}-w${cW}`}
 function mky(){return`yr-${cY}`}
 function gM(k){return(db[mk()]||{})[k]}
 function sM(k,v){if(!db[mk()])db[mk()]={};db[mk()][k]=v;persist()}
-function gD(d,k){return(db[mkd(d)]||{})[k]}
-function sD(d,k,v){if(!db[mkd(d)])db[mkd(d)]={};db[mkd(d)][k]=v;persist()}
+function gD(d,k){
+  const key=mkd(d);
+  if(!key)return undefined;
+  return(db[key]||{})[k];
+}
+function sD(d,k,v){
+  const key=mkd(d);
+  if(!key){
+    console.error('Cannot save to daily key - invalid day:', d);
+    return;
+  }
+  if(!db[key])db[key]={};
+  db[key][k]=v;
+  persist();
+}
 function gW(k){return(db[mkw()]||{})[k]}
 function sW(k,v){if(!db[mkw()])db[mkw()]={};db[mkw()][k]=v;persist()}
 function gY(k){return(db[mky()]||{})[k]}
@@ -1741,10 +1811,23 @@ function openDM(d){
   (gD(d,'imgs')||[]).forEach((s,i)=>strip.appendChild(mkThumb(s,i,'daystrip')));
   document.getElementById('day-ov').classList.add('on');
 }
-function closeDM(){document.getElementById('day-ov').classList.remove('on');rCal()}
+function closeDM(){document.getElementById('day-ov').classList.remove('on');aDay=null;rCal()}
 function ovCk(e){if(e.target===document.getElementById('day-ov'))closeDM()}
-function saveDN(){sD(aDay,'note',document.getElementById('dnote').value)}
-function saveDG(){sD(aDay,'grats',[document.getElementById('dg1').value,document.getElementById('dg2').value,document.getElementById('dg3').value])}
+function saveDN(){
+  if(!aDay || aDay<1 || aDay>31){
+    console.error('Cannot save daily note - no day selected. aDay:', aDay);
+    toast('⚠️ Please select a day first');
+    return;
+  }
+  sD(aDay,'note',document.getElementById('dnote').value);
+}
+function saveDG(){
+  if(!aDay || aDay<1 || aDay>31){
+    console.error('Cannot save daily gratitude - no day selected. aDay:', aDay);
+    return;
+  }
+  sD(aDay,'grats',[document.getElementById('dg1').value,document.getElementById('dg2').value,document.getElementById('dg3').value]);
+}
 
 // STICKERS
 function rStickerBar(){
@@ -1894,8 +1977,26 @@ function rTasks(){
     const c=document.getElementById('td-'+col);c.innerHTML='';
     (gM('td-'+col)||[]).forEach((it,i)=>{
       const d=document.createElement('div');d.className='ti'+(it.done?' di':'');
-      const cb=document.createElement('input');cb.type='checkbox';cb.checked=!!it.done;cb.onchange=()=>{const a=gM('td-'+col)||[];a[i].done=!a[i].done;sM('td-'+col,a);rTasks()};
-      const inp=document.createElement('input');inp.type='text';inp.value=esc(it.text||'');inp.placeholder='Task…';inp.onchange=e=>{const a=gM('td-'+col)||[];a[i].text=e.target.value;sM('td-'+col,a)};
+      const cb=document.createElement('input');cb.type='checkbox';cb.checked=!!it.done;
+      cb.onchange=()=>{
+        const a=gM('td-'+col)||[];
+        a[i].done=!a[i].done;
+        sM('td-'+col,a);
+        rTasks();
+      };
+      const inp=document.createElement('input');
+      inp.type='text';
+      inp.value=esc(it.text||'');
+      inp.placeholder='Task…';
+      inp.style.flex='1';
+      inp.style.border='1px solid rgba(255,255,255,0.1)';
+      inp.style.padding='4px 8px';
+      inp.style.borderRadius='4px';
+      inp.onchange=e=>{
+        const a=gM('td-'+col)||[];
+        a[i].text=e.target.value;
+        sM('td-'+col,a);
+      };
       d.appendChild(cb);d.appendChild(inp);c.appendChild(d);
     });
   });
@@ -1905,6 +2006,9 @@ function rTasks(){
   (gM('learn')||[]).forEach((t,i)=>{
     const d=document.createElement('div');d.className='li';d.innerHTML='<div class="ldot"></div>';
     const inp=document.createElement('input');inp.type='text';inp.value=esc(t);inp.placeholder='Something new…';inp.style.flex='1';
+    inp.style.border='1px solid rgba(255,255,255,0.1)';
+    inp.style.padding='4px 8px';
+    inp.style.borderRadius='4px';
     inp.onchange=e=>{const a=gM('learn')||[];a[i]=e.target.value;sM('learn',a)};
     d.appendChild(inp);c.appendChild(d);
   });
@@ -2349,11 +2453,29 @@ window.debugPlanner = function() {
   console.log('Database keys:', Object.keys(db).length);
   console.log('Sample keys:', Object.keys(db).slice(0, 20));
   console.log('Current year:', cY, 'Current month:', cM);
+  console.log('Current month key (mk()):', mk());
   console.log('Is syncing:', isSyncing);
+  
+  // Show current month's data
+  const monthData = db[mk()];
+  if (monthData) {
+    console.log('\n📅 Current month data ('+mk()+'):');
+    console.log('- Has tasks (td-must):', !!(monthData['td-must']));
+    console.log('- Has tasks (td-doing):', !!(monthData['td-doing']));
+    console.log('- Has tasks (td-plan):', !!(monthData['td-plan']));
+    console.log('- Has learn:', !!(monthData['learn']));
+    console.log('- Has dates:', !!(monthData['dates']));
+    console.log('- Has notes:', !!(monthData['notes']));
+    console.log('- Has highlights:', !!(monthData['hl-proud'] || monthData['hl-mem']));
+    console.log('Full data:', monthData);
+  } else {
+    console.log('\n⚠️ No data found for current month:', mk());
+  }
+  
   console.log('\nTo manually sync, run: forceSyncToSheets()');
   console.log('To reload from sheets, run: loadFromSheets()');
   console.log('To fix duplicates, run: fixDuplicateData()');
-  return { db, keys: Object.keys(db), totalEntries: Object.keys(db).length };
+  return { db, keys: Object.keys(db), totalEntries: Object.keys(db).length, currentMonth: mk(), monthData: db[mk()] };
 };
 
 window.fixDuplicateData = function() {
@@ -2362,6 +2484,13 @@ window.fixDuplicateData = function() {
   if(fixed) {
     console.log('✅ Fixed duplicate data. Syncing to Google Sheets...');
     forceSyncToSheets();
+    // Refresh all pages
+    updateAll();
+    rTasks();
+    rDates();
+    rNotes();
+    rHL();
+    rMantra();
     toast('✓ Fixed duplicate data and synced!');
   } else {
     console.log('✓ No duplicates found');
