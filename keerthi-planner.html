@@ -1052,8 +1052,12 @@ async function manualSyncFromCloud(){
   if(serverData&&Object.keys(serverData).length>0){
     db=serverData;
     localStorage.setItem(SK,JSON.stringify(db));
+    // Clean up any corrupted keys from old code versions
+    await cleanupCorruptedKeys();
     setSyncStatus('ok','Synced · '+new Date().toLocaleTimeString());
     toast('✓ Data refreshed from Google Sheets!');
+    // Re-sync cleaned data back to sheets if cleanup fixed anything
+    await syncToSheets();
     updateAll();
     updateDataHealthUI();
   }else{
