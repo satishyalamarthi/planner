@@ -962,10 +962,26 @@ async function loadFromSheets(){
         db=serverData;
         console.log(`Initial sync: Loaded ${serverKeys} items from Google Sheets`);
       }else{
-        // Merge: server data first, then local (local takes priority for conflicts)
-        // This allows local edits to persist while getting new server data
-        db={...serverData,...db};
-        console.log(`Merge sync: ${serverKeys} server items, ${localKeys} local items`);
+        // Smart merge: Combine server and local, preferring server for freshness
+        // Deep merge each key - if server has data for a key, use it unless local is empty
+        const merged={};
+        // Start with all server keys
+        Object.keys(serverData).forEach(key=>{
+          merged[key]=serverData[key];
+        });
+        // Add local keys that don't exist in server, or merge objects
+        Object.keys(db).forEach(key=>{
+          if(!merged[key]){
+            // Key only exists locally - keep it
+            merged[key]=db[key];
+          }else if(typeof merged[key]==='object'&&typeof db[key]==='object'&&!Array.isArray(merged[key])){
+            // Both have object data - deep merge
+            merged[key]={...merged[key],...db[key]};
+          }
+          // Otherwise keep server version
+        });
+        db=merged;
+        console.log(`Smart merge: ${serverKeys} server items, ${localKeys} local items → ${Object.keys(db).length} total`);
       }
       // Clean up any corrupted keys from the server data
       const hadCorruption=cleanupCorruptedKeys();
@@ -1039,6 +1055,7 @@ async function manualSyncFromCloud(){
     setSyncStatus('ok','Synced · '+new Date().toLocaleTimeString());
     toast('✓ Data refreshed from Google Sheets!');
     updateAll();
+    updateDataHealthUI();
   }else{
     toast('⚠️ No data found in Google Sheets');
   }
