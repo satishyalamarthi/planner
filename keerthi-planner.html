@@ -632,6 +632,94 @@ const ASSIGNEES=[{id:'satish',name:'Satish',initials:'SA',color:'#5b4fcf'},{id:'
 
 function load(){try{db=JSON.parse(localStorage.getItem(SK)||'{}')}catch(e){db={}}}
 
+// Migrate old format keys (YYYY-MM) to new format (YYYY-MM_MonthName)
+function migrateKeysToNewFormat(){
+  console.log('🔄 Checking for old format keys to migrate...');
+  let migrated = false;
+  
+  // Pattern to match old format: YYYY-MM (without month name)
+  // But not daily (YYYY-MM-DD) or weekly (YYYY-MM-wN) keys
+  const oldMonthKeyPattern = /^\d{4}-\d{2}$/;
+  
+  Object.keys(db).forEach(oldKey => {
+    if(oldMonthKeyPattern.test(oldKey)) {
+      // Extract year and month from old key
+      const [year, monthNum] = oldKey.split('-');
+      const monthIdx = parseInt(monthNum) - 1; // Convert to 0-based index
+      
+      // Generate new key with month name
+      const newKey = `${year}-${monthNum}_${MONTH_NAMES[monthIdx]}`;
+      
+      // Check if new key already exists
+      if(!db[newKey]) {
+        console.log(`📦 Migrating: ${oldKey} → ${newKey}`);
+        db[newKey] = db[oldKey];
+        delete db[oldKey];
+        migrated = true;
+      } else {
+        console.log(`⚠️ New key ${newKey} already exists, skipping migration of ${oldKey}`);
+      }
+    }
+  });
+  
+  // Also migrate daily and weekly keys that reference old month format
+  Object.keys(db).forEach(key => {
+    // Daily keys: YYYY-MM-DD → YYYY-MM_MonthName-DD-Day
+    // Also handle intermediate format: YYYY-MM_MonthName-DD → YYYY-MM_MonthName-DD-Day
+    const dailyMatch = key.match(/^(\d{4})-(\d{2})(?:_([A-Za-z]{3}))-(\d{2})$/);
+    const oldDailyMatch = key.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    
+    if(dailyMatch) {
+      // Has month name but no -Day suffix
+      const [, year, monthNum, monthName, day] = dailyMatch;
+      const newKey = `${year}-${monthNum}_${monthName}-${day}-Day`;
+      
+      if(!db[newKey]) {
+        console.log(`📦 Migrating daily key: ${key} → ${newKey}`);
+        db[newKey] = db[key];
+        delete db[key];
+        migrated = true;
+      }
+    } else if(oldDailyMatch) {
+      // Old format without month name: YYYY-MM-DD
+      const [, year, monthNum, day] = oldDailyMatch;
+      const monthIdx = parseInt(monthNum) - 1;
+      const newKey = `${year}-${monthNum}_${MONTH_NAMES[monthIdx]}-${day}-Day`;
+      
+      if(!db[newKey]) {
+        console.log(`📦 Migrating daily key: ${key} → ${newKey}`);
+        db[newKey] = db[key];
+        delete db[key];
+        migrated = true;
+      }
+    }
+    
+    // Weekly keys: YYYY-MM-wN → YYYY-MM_MonthName-wN
+    const weeklyMatch = key.match(/^(\d{4})-(\d{2})-(w\d+)$/);
+    if(weeklyMatch) {
+      const [, year, monthNum, weekPart] = weeklyMatch;
+      const monthIdx = parseInt(monthNum) - 1;
+      const newKey = `${year}-${monthNum}_${MONTH_NAMES[monthIdx]}-${weekPart}`;
+      
+      if(!db[newKey]) {
+        console.log(`📦 Migrating weekly key: ${key} → ${newKey}`);
+        db[newKey] = db[key];
+        delete db[key];
+        migrated = true;
+      }
+    }
+  });
+  
+  if(migrated) {
+    console.log('✅ Key migration completed. Saving to localStorage...');
+    localStorage.setItem(SK, JSON.stringify(db));
+    return true;
+  } else {
+    console.log('✅ No old format keys found. Migration skipped.');
+    return false;
+  }
+}
+
 // Clean up corrupted keys from Date objects
 function cleanupCorruptedKeys(){
   console.log('🔍 Checking for corrupted keys...');
@@ -648,7 +736,8 @@ function cleanupCorruptedKeys(){
     }
     
     // Check if monthly key has daily-only data
-    if(key.match(/^\d{4}-\d{2}$/)){
+    // Match both old (YYYY-MM) and new (YYYY-MM_MonthName) formats
+    if(key.match(/^\d{4}-\d{2}(_[A-Za-z]{3})?$/)){
       const data=db[key];
       if(data&&(data.note||data.grats||data.imgs||data.stickers)){
         dailyDataInMonthKeys.push(key);
@@ -656,8 +745,8 @@ function cleanupCorruptedKeys(){
       }
     }
     
-    // Check if key is a day key (yyyy-mm-dd) with month-level data
-    if(key.match(/^\d{4}-\d{2}-\d{2}$/)){
+    // Check if key is a day key (yyyy-mm-dd, yyyy-mm_MonthName-dd, or yyyy-mm_MonthName-dd-Day) with month-level data
+    if(key.match(/^\d{4}-\d{2}(_[A-Za-z]{3})?-\d{2}(-Day)?$/)){
       const data=db[key];
       // Check if it has month-level data (mantra, learn, dates, bdays, highlights, etc.)
       if(data&&(data.mantra||data['mantra-why']||data['mantra-imgs']||
@@ -814,6 +903,8 @@ function getAssigneeNames(habit){
 
 // Debounce timer for Google Sheets sync
 let syncDebounceTimer=null;
+const modifiedKeys=new Set(); // Track which keys have been modified for smart single-key sync
+
 function persist(){
   try{
     // Save to localStorage immediately (fast, local)
@@ -821,11 +912,32 @@ function persist(){
     toast('✓ Saved!');
     
     // Debounce Google Sheets sync (wait for user to stop typing)
+    // Now syncs only modified keys with merge logic instead of full database
     if(syncDebounceTimer){
       clearTimeout(syncDebounceTimer);
     }
-    syncDebounceTimer=setTimeout(()=>{
-      syncToSheets();
+    syncDebounceTimer=setTimeout(async ()=>{
+      console.log('⏱️ Debounced sync triggered for keys:', Array.from(modifiedKeys));
+      // Sync each modified key individually with merge logic
+      const keysToSync=Array.from(modifiedKeys);
+      modifiedKeys.clear();
+      
+      if(keysToSync.length===0){
+        console.log('ℹ️ No keys modified, skipping sync');
+        syncDebounceTimer=null;
+        return;
+      }
+      
+      try{
+        for(const key of keysToSync){
+          await syncSingleKey(key);
+        }
+        console.log('✅ All modified keys synced successfully');
+        toast(`✓ Synced ${keysToSync.length} item(s)`);
+      }catch(e){
+        console.error('❌ Debounced sync failed:',e);
+        toast('⚠️ Sync failed: '+e.message);
+      }
       syncDebounceTimer=null;
     },1500); // Wait 1.5 seconds after last keystroke
   }catch(e){
@@ -919,10 +1031,13 @@ async function manualArchivePlanner(){
 let isSyncing=false;
 // Force immediate sync (bypasses debounce) - use for explicit save actions
 function forceSyncToSheets(){
+  console.log('⚡ forceSyncToSheets called');
   if(syncDebounceTimer){
+    console.log('  Clearing existing debounce timer');
     clearTimeout(syncDebounceTimer);
     syncDebounceTimer=null;
   }
+  console.log('  Calling syncToSheets immediately...');
   syncToSheets();
 }
 async function plannerAPI(payload,retries=2){
@@ -956,6 +1071,38 @@ function setSyncStatus(status,text){
   if(dot)dot.className='sync-dot '+status;
   if(txt)txt.textContent=text;
 }
+// Sync a single key with merge logic to prevent data loss from parallel edits
+async function syncSingleKey(key){
+  if(!PLANNER_SCRIPT_URL)return;
+  console.log('🔄 Syncing single key:', key);
+  try{
+    // Get current server value for this key
+    const serverData=await plannerAPI({action:'getKeyData',key:key});
+    console.log('  Server data for key:', serverData ? 'exists' : 'empty');
+    
+    // Deep merge: combine server and local data for this key
+    let mergedValue=db[key]||{};
+    if(serverData&&typeof serverData==='object'&&!Array.isArray(serverData)){
+      // Both exist - merge objects, preferring local for recent changes
+      mergedValue=Object.assign({},serverData,db[key]);
+      console.log('  Merged server + local data');
+    }
+    
+    // Update local db with merged value
+    db[key]=mergedValue;
+    localStorage.setItem(SK,JSON.stringify(db));
+    
+    // Save merged data to sheets
+    const result=await plannerAPI({action:'saveSingle',key:key,value:mergedValue});
+    console.log('✅ Key synced:', key, result);
+    setSyncStatus('ok','Synced · '+new Date().toLocaleTimeString());
+  }catch(e){
+    console.error('❌ Single key sync failed:',e);
+    setSyncStatus('err','Sync failed');
+    throw e;
+  }
+}
+
 async function syncToSheets(){
   if(!PLANNER_SCRIPT_URL||isSyncing)return;
   isSyncing=true;
@@ -1469,7 +1616,7 @@ async function exportPlannerPDF(){
     
     // MONTHLY SECTIONS - Loop through all 12 months
     for(let monthIdx=0;monthIdx<12;monthIdx++){
-      const monthKey=`${cY}-${String(monthIdx+1).padStart(2,'0')}`;
+      const monthKey=`${cY}-${String(monthIdx+1).padStart(2,'0')}_${MONTH_NAMES[monthIdx]}`;
       const monthData=db[monthKey];
       
       // Skip empty months (check if any data exists)
@@ -1484,7 +1631,7 @@ async function exportPlannerPDF(){
       let hasDailyData=false;
       const daysInMonth=new Date(cY,monthIdx+1,0).getDate();
       for(let d=1;d<=daysInMonth&&!hasDailyData;d++){
-        const dayKey=`${cY}-${String(monthIdx+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+        const dayKey=`${monthKey}-${String(d).padStart(2,'0')}-Day`;
         if(db[dayKey]&&(db[dayKey].note||db[dayKey].imgs||(db[dayKey].grats||[]).some(g=>g))){
           hasDailyData=true;
         }
@@ -1594,7 +1741,7 @@ async function exportPlannerPDF(){
         addDivider();
         let entryCount=0;
         for(let d=1;d<=daysInMonth;d++){
-          const dayKey=`${cY}-${String(monthIdx+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+          const dayKey=`${monthKey}-${String(d).padStart(2,'0')}-Day`;
           const dayData=db[dayKey];
           if(!dayData)continue;
           const note=dayData.note;
@@ -1630,7 +1777,7 @@ async function exportPlannerPDF(){
       const weekImgs=monthData['wk-imgs'];
       let hasWeeklyData=false;
       for(let w=0;w<weekCount;w++){
-        const weekKey=`${cY}-${String(monthIdx+1).padStart(2,'0')}-w${w}`;
+        const weekKey=`${monthKey}-w${w}`;
         if(db[weekKey]&&(db[weekKey].plan||db[weekKey].jrnl)){
           hasWeeklyData=true;
           break;
@@ -1642,7 +1789,7 @@ async function exportPlannerPDF(){
         addSectionTitle('WEEKLY PLANS');
         addDivider();
         for(let w=0;w<weekCount;w++){
-          const weekKey=`${cY}-${String(monthIdx+1).padStart(2,'0')}-w${w}`;
+          const weekKey=`${monthKey}-w${w}`;
           const weekData=db[weekKey];
           if(weekData&&(weekData.plan||weekData.jrnl)){
             addSubtitle(`Week ${w+1}`);
@@ -1679,19 +1826,32 @@ async function exportPlannerPDF(){
   }
 }
 
-function mk(){return`${cY}-${String(cM+1).padStart(2,'0')}`}
+// Month names for key format
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function mk(){
+  const monthNum = String(cM+1).padStart(2,'0');
+  const monthName = MONTH_NAMES[cM];
+  return`${cY}-${monthNum}_${monthName}`;
+}
 function mkd(d){
   // Validate day input
   if(!d || d<1 || d>31){
     console.error('Invalid day for mkd:', d);
     return null;
   }
-  return`${mk()}-${String(d).padStart(2,'0')}`;
+  return`${mk()}-${String(d).padStart(2,'0')}-Day`;
 }
 function mkw(){return`${mk()}-w${cW}`}
 function mky(){return`yr-${cY}`}
 function gM(k){return(db[mk()]||{})[k]}
-function sM(k,v){if(!db[mk()])db[mk()]={};db[mk()][k]=v;persist()}
+function sM(k,v){
+  const key=mk();
+  if(!db[key])db[key]={};
+  db[key][k]=v;
+  modifiedKeys.add(key); // Track this key for smart sync
+  persist();
+}
 function gD(d,k){
   const key=mkd(d);
   if(!key)return undefined;
@@ -1705,21 +1865,89 @@ function sD(d,k,v){
   }
   if(!db[key])db[key]={};
   db[key][k]=v;
+  modifiedKeys.add(key); // Track this key for smart sync
   persist();
 }
 function gW(k){return(db[mkw()]||{})[k]}
-function sW(k,v){if(!db[mkw()])db[mkw()]={};db[mkw()][k]=v;persist()}
+function sW(k,v){
+  const key=mkw();
+  if(!db[key])db[key]={};
+  db[key][k]=v;
+  modifiedKeys.add(key); // Track this key for smart sync
+  persist();
+}
 function gY(k){return(db[mky()]||{})[k]}
-function sY(k,v){if(!db[mky()])db[mky()]={};db[mky()][k]=v;persist()}
+function sY(k,v){
+  const key=mky();
+  if(!db[key])db[key]={};
+  db[key][k]=v;
+  modifiedKeys.add(key); // Track this key for smart sync
+  persist();
+}
 function gYR(k){return(db[`yrR-${cY}`]||{})[k]}
-function sYR(k,v){if(!db[`yrR-${cY}`])db[`yrR-${cY}`]={};db[`yrR-${cY}`][k]=v;persist()}
+function sYR(k,v){
+  const key=`yrR-${cY}`;
+  if(!db[key])db[key]={};
+  db[key][k]=v;
+  modifiedKeys.add(key); // Track this key for smart sync
+  persist();
+}
 
-// Save functions that force immediate sync (for deletions to prevent data loss)
-function sMSync(k,v){if(!db[mk()])db[mk()]={};db[mk()][k]=v;localStorage.setItem(SK,JSON.stringify(db));forceSyncToSheets()}
-function sDSync(d,k,v){if(!db[mkd(d)])db[mkd(d)]={};db[mkd(d)][k]=v;localStorage.setItem(SK,JSON.stringify(db));forceSyncToSheets()}
-function sWSync(k,v){if(!db[mkw()])db[mkw()]={};db[mkw()][k]=v;localStorage.setItem(SK,JSON.stringify(db));forceSyncToSheets()}
-function sYSync(k,v){if(!db[mky()])db[mky()]={};db[mky()][k]=v;localStorage.setItem(SK,JSON.stringify(db));forceSyncToSheets()}
-function sYRSync(k,v){if(!db[`yrR-${cY}`])db[`yrR-${cY}`]={};db[`yrR-${cY}`][k]=v;localStorage.setItem(SK,JSON.stringify(db));forceSyncToSheets()}
+// Save functions that use single-key sync with merge logic (prevents parallel edit conflicts)
+function sMSync(k,v){
+  console.log('  sMSync called:', {key: mk(), field: k, arrayLength: v?.length});
+  const key=mk();
+  if(!db[key])db[key]={};
+  db[key][k]=v;
+  localStorage.setItem(SK,JSON.stringify(db));
+  console.log('  sMSync: Saved to localStorage, syncing key:', key);
+  // Use single-key sync to avoid overwriting other browsers' changes
+  syncSingleKey(key).catch(e=>console.error('sMSync failed:',e));
+}
+function sDSync(d,k,v){
+  const key=mkd(d);
+  console.log('  sDSync called:', {day: d, key, field: k, arrayLength: v?.length});
+  if(!key){
+    console.error('Cannot save to daily key - invalid day:', d);
+    return;
+  }
+  if(!db[key])db[key]={};
+  db[key][k]=v;
+  localStorage.setItem(SK,JSON.stringify(db));
+  console.log('  sDSync: Saved to localStorage, syncing key:', key);
+  // Use single-key sync to avoid overwriting other browsers' changes
+  syncSingleKey(key).catch(e=>console.error('sDSync failed:',e));
+}
+function sWSync(k,v){
+  console.log('  sWSync called:', {key: mkw(), field: k, arrayLength: v?.length});
+  const key=mkw();
+  if(!db[key])db[key]={};
+  db[key][k]=v;
+  localStorage.setItem(SK,JSON.stringify(db));
+  console.log('  sWSync: Saved to localStorage, syncing key:', key);
+  // Use single-key sync to avoid overwriting other browsers' changes
+  syncSingleKey(key).catch(e=>console.error('sWSync failed:',e));
+}
+function sYSync(k,v){
+  console.log('  sYSync called:', {key: mky(), field: k, arrayLength: v?.length});
+  const key=mky();
+  if(!db[key])db[key]={};
+  db[key][k]=v;
+  localStorage.setItem(SK,JSON.stringify(db));
+  console.log('  sYSync: Saved to localStorage, syncing key:', key);
+  // Use single-key sync to avoid overwriting other browsers' changes
+  syncSingleKey(key).catch(e=>console.error('sYSync failed:',e));
+}
+function sYRSync(k,v){
+  const key=`yrR-${cY}`;
+  console.log('  sYRSync called:', {key, field: k, arrayLength: v?.length});
+  if(!db[key])db[key]={};
+  db[key][k]=v;
+  localStorage.setItem(SK,JSON.stringify(db));
+  console.log('  sYRSync: Saved to localStorage, syncing key:', key);
+  // Use single-key sync to avoid overwriting other browsers' changes
+  syncSingleKey(key).catch(e=>console.error('sYRSync failed:',e));
+}
 
 let _tt;
 function toast(m){const t=document.getElementById('toast');t.textContent=m||'✓';t.classList.add('on');clearTimeout(_tt);_tt=setTimeout(()=>t.classList.remove('on'),1800)}
@@ -1843,14 +2071,20 @@ function saveDN(){
     toast('⚠️ Please select a day first');
     return;
   }
-  sD(aDay,'note',document.getElementById('dnote').value);
+  // Use sDSync for immediate sync to prevent data loss
+  sDSync(aDay,'note',document.getElementById('dnote').value);
+  toast('✓ Note saved!');
+  rCal(); // Refresh calendar to show note indicators
 }
 function saveDG(){
   if(!aDay || aDay<1 || aDay>31){
     console.error('Cannot save daily gratitude - no day selected. aDay:', aDay);
     return;
   }
-  sD(aDay,'grats',[document.getElementById('dg1').value,document.getElementById('dg2').value,document.getElementById('dg3').value]);
+  // Use sDSync for immediate sync instead of sD for critical gratitude data
+  sDSync(aDay,'grats',[document.getElementById('dg1').value,document.getElementById('dg2').value,document.getElementById('dg3').value]);
+  toast('✓ Gratitude saved!');
+  rCal(); // Refresh calendar to show gratitude indicators
 }
 
 // STICKERS
@@ -1877,24 +2111,44 @@ function rPlacedStickers(){
 
 // IMAGE UPLOAD - KEY FIX: use onchange on hidden input, label triggers it correctly
 // UPDATED: Now uses compression to prevent exceeding Google Sheets cell limits
+// UPDATED: Uses single-key sync to prevent data loss from parallel edits
 async function hDayImgs(inp){
-  if(!db[mkd(aDay)])db[mkd(aDay)]={};
-  if(!db[mkd(aDay)].imgs)db[mkd(aDay)].imgs=[];
+  const dayKey=mkd(aDay);
+  if(!dayKey){
+    toast('⚠️ Invalid day selected');
+    return;
+  }
+  if(!db[dayKey])db[dayKey]={};
+  if(!db[dayKey].imgs)db[dayKey].imgs=[];
   const strip=document.getElementById('modal-imgs');
   const files=Array.from(inp.files);
+  console.log(`📷 Uploading ${files.length} image(s) to day ${aDay} (key: ${dayKey})`);
   for(const f of files){
     try{
       const compressed=await compressImage(f);
-      db[mkd(aDay)].imgs.push(compressed);
-      persist();
-      strip.appendChild(mkThumb(compressed,db[mkd(aDay)].imgs.length-1,'daystrip'));
+      db[dayKey].imgs.push(compressed);
+      // Save to localStorage immediately
+      localStorage.setItem(SK,JSON.stringify(db));
+      strip.appendChild(mkThumb(compressed,db[dayKey].imgs.length-1,'daystrip'));
       updateDataHealthUI();
+      console.log(`  ✓ Image added. Total images for this day: ${db[dayKey].imgs.length}`);
     }catch(e){
       console.error('Image compression failed:',e);
       toast('⚠️ Image upload failed');
     }
   }
   inp.value=''; // reset so same file can be re-added
+  
+  // Sync this specific day key with merge logic to prevent data loss
+  console.log(`🔄 Syncing day key: ${dayKey}`);
+  toast('💾 Syncing images...');
+  syncSingleKey(dayKey).then(()=>{
+    toast('✓ Images synced!');
+    rCal(); // Refresh calendar
+  }).catch(e=>{
+    console.error('Image sync failed:',e);
+    toast('⚠️ Sync failed: '+e.message);
+  });
 }
 
 // IMAGE VIEWER
@@ -1909,11 +2163,11 @@ async function hImgs(sid,inp){
   const strip=document.getElementById(sid);
   const arr=gM(sid)||[];
   const files=Array.from(inp.files);
+  console.log(`📷 Uploading ${files.length} image(s) to monthly field: ${sid}`);
   for(const f of files){
     try{
       const compressed=await compressImage(f);
       arr.push(compressed);
-      sM(sid,arr);
       strip.appendChild(mkThumb(compressed,arr.length-1,sid));
       updateDataHealthUI();
     }catch(e){
@@ -1922,16 +2176,20 @@ async function hImgs(sid,inp){
     }
   }
   inp.value='';
+  // Use sMSync for immediate sync with merge logic
+  toast('💾 Syncing images...');
+  sMSync(sid,arr);
+  setTimeout(()=>toast('✓ Images synced!'),500);
 }
 async function hYImgs(sid,inp){
   const strip=document.getElementById(sid);
   const arr=gY(sid)||[];
   const files=Array.from(inp.files);
+  console.log(`📷 Uploading ${files.length} image(s) to yearly field: ${sid}`);
   for(const f of files){
     try{
       const compressed=await compressImage(f);
       arr.push(compressed);
-      sY(sid,arr);
       strip.appendChild(mkThumb(compressed,arr.length-1,sid));
       updateDataHealthUI();
     }catch(e){
@@ -1940,6 +2198,10 @@ async function hYImgs(sid,inp){
     }
   }
   inp.value='';
+  // Use sYSync for immediate sync with merge logic
+  toast('💾 Syncing images...');
+  sYSync(sid,arr);
+  setTimeout(()=>toast('✓ Images synced!'),500);
 }
 function mkThumb(src,idx,gk,day){
   const w=document.createElement('div');w.className='ithw';
@@ -1951,29 +2213,91 @@ function mkThumb(src,idx,gk,day){
   w.appendChild(img);w.appendChild(delBtn);return w;
 }
 function deleteImg(gk,idx,day){
+  console.log('🗑️ deleteImg called:', {gk, idx, day});
+  
   // Determine storage type and delete from array
-  let arr=null;
+  let arr=null, originalLength=0, key=null;
+  
   if(gk==='wd'&&day!==undefined){
     // Week day images - day parameter passed from mkThumb
-    arr=gD(day,'imgs')||[];arr.splice(idx,1);sDSync(day,'imgs',arr);
+    key=mkd(day);
+    console.log('  Type: Week day image, Key:', key);
+    arr=(gD(day,'imgs')||[]).slice(); // Clone array
+    originalLength=arr.length;
+    console.log('  Before deletion:', arr.length, 'images');
+    arr.splice(idx,1);
+    console.log('  After deletion:', arr.length, 'images');
+    sDSync(day,'imgs',arr);
     rWeek(); // Refresh entire week view
   }else if(gk.startsWith('yr-')){
     // Year goals images
-    arr=gY(gk)||[];arr.splice(idx,1);sYSync(gk,arr);
+    key=mky();
+    console.log('  Type: Year goals, Key:', key);
+    arr=(gY(gk)||[]).slice(); // Clone array
+    originalLength=arr.length;
+    console.log('  Before deletion:', arr.length, 'images');
+    arr.splice(idx,1);
+    console.log('  After deletion:', arr.length, 'images');
+    sYSync(gk,arr);
     lStripY(gk,gk);
   }else if(gk.startsWith('yrR-')){
-    // Year reflection images  
-    arr=gYR(gk)||[];arr.splice(idx,1);sYRSync(gk,arr);
+    // Year reflection images
+    key=`yrR-${cY}`;
+    console.log('  Type: Year reflection, Key:', key);
+    arr=(gYR(gk)||[]).slice(); // Clone array
+    originalLength=arr.length;
+    console.log('  Before deletion:', arr.length, 'images');
+    arr.splice(idx,1);
+    console.log('  After deletion:', arr.length, 'images');
+    sYRSync(gk,arr);
     lStripYR(gk,gk);
   }else if(gk==='wk-imgs'){
     // Weekly level images
-    arr=gW(gk)||[];arr.splice(idx,1);sWSync(gk,arr);
+    key=mkw();
+    console.log('  Type: Week images, Key:', key);
+    arr=(gW(gk)||[]).slice(); // Clone array
+    originalLength=arr.length;
+    console.log('  Before deletion:', arr.length, 'images');
+    arr.splice(idx,1);
+    console.log('  After deletion:', arr.length, 'images');
+    sWSync(gk,arr);
     lStrip(gk,gk,gW);
+  }else if(gk==='daystrip'){
+    // Day modal images
+    if(!aDay){
+      console.error('  Cannot delete day image - no day selected');
+      toast('⚠️ Error: No day selected');
+      return;
+    }
+    key=mkd(aDay);
+    console.log('  Type: Day modal image, Key:', key);
+    arr=(gD(aDay,'imgs')||[]).slice(); // Clone array
+    originalLength=arr.length;
+    console.log('  Before deletion:', arr.length, 'images');
+    arr.splice(idx,1);
+    console.log('  After deletion:', arr.length, 'images');
+    sDSync(aDay,'imgs',arr);
+    // Refresh day modal
+    const strip=document.getElementById('modal-imgs');
+    if(strip){
+      strip.innerHTML='';
+      arr.forEach((s,i)=>strip.appendChild(mkThumb(s,i,'daystrip')));
+    }
+    rCal(); // Refresh calendar
   }else{
     // Monthly data (default)
-    arr=gM(gk)||[];arr.splice(idx,1);sMSync(gk,arr);
+    key=mk();
+    console.log('  Type: Monthly data, Key:', key, 'Field:', gk);
+    arr=(gM(gk)||[]).slice(); // Clone array
+    originalLength=arr.length;
+    console.log('  Before deletion:', arr.length, 'images');
+    arr.splice(idx,1);
+    console.log('  After deletion:', arr.length, 'images');
+    sMSync(gk,arr);
     lStrip(gk,gk);
   }
+  
+  console.log('  Deletion complete. Original:', originalLength, 'New:', arr.length);
   toast('✓ Image deleted');
 }
 function lStrip(sid,key,fn){
@@ -2113,7 +2437,7 @@ function getHabitSummary(){
       let done=0,target=0;
       const qtyValues=[];
       for(let d=new Date(mStart);d<=lastDay;d.setDate(d.getDate()+1)){
-        const k=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        const k=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}_${MONTH_NAMES[d.getMonth()]}-${String(d.getDate()).padStart(2,'0')}-Day`;
         if(h.type==='qty'){
           if(qtyLogs[h.id]&&qtyLogs[h.id][k]!==undefined){
             const val=qtyLogs[h.id][k];
@@ -2190,7 +2514,7 @@ function getHabitSummary(){
           const maxDay=todayDate.getMonth()===month&&todayDate.getFullYear()===year?Math.min(daysInMonth,todayDate.getDate()):daysInMonth;
           
           for(let day=1;day<=maxDay;day++){
-            const k=`${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+            const k=`${year}-${String(month+1).padStart(2,'0')}_${MONTH_NAMES[month]}-${String(day).padStart(2,'0')}-Day`;
             const moodId=moods[user][k];
             if(moodId){
               if(!userMoodCounts[user][moodId])userMoodCounts[user][moodId]=0;
@@ -2401,18 +2725,20 @@ function addVBWord(){const inp=document.getElementById('vb-word-inp');const w=in
 async function hVBImgs(inp){
   const strip=document.getElementById('vb-full-imgs');
   const files=Array.from(inp.files);
+  const arr=gY('vb-full-imgs')||[];
+  const startIdx=arr.length;
+  console.log(`📷 Uploading ${files.length} image(s) to vision board`);
+  
   for(const f of files){
     try{
       const compressed=await compressImage(f);
-      const arr=gY('vb-full-imgs')||[];
       arr.push(compressed);
-      sY('vb-full-imgs',arr);
       const wrap=document.createElement('div');wrap.className='vb-img-wrap';
       const img=document.createElement('img');img.className='vb-full-img';img.src=compressed;
-      img.onclick=()=>openIV(gY('vb-full-imgs')||[],arr.length-1);
+      const currentIdx=arr.length-1;
+      img.onclick=()=>openIV(gY('vb-full-imgs')||[],currentIdx);
       const delBtn=document.createElement('div');delBtn.className='vb-img-del';delBtn.innerHTML='✕';delBtn.title='Delete image';
-      const idx=arr.length-1;
-      delBtn.onclick=ev=>{ev.stopPropagation();if(confirm('Delete this image?')){const a=gY('vb-full-imgs')||[];a.splice(idx,1);sY('vb-full-imgs',a);rVBoard();}};
+      delBtn.onclick=ev=>{ev.stopPropagation();if(confirm('Delete this image?')){const a=gY('vb-full-imgs')||[];a.splice(currentIdx,1);sYSync('vb-full-imgs',a);rVBoard();}};
       wrap.appendChild(img);wrap.appendChild(delBtn);strip.appendChild(wrap);
       updateDataHealthUI();
     }catch(e){
@@ -2421,6 +2747,13 @@ async function hVBImgs(inp){
     }
   }
   inp.value='';
+  
+  // Sync all images at once with merge logic
+  if(files.length>0){
+    toast('💾 Syncing images...');
+    sYSync('vb-full-imgs',arr);
+    setTimeout(()=>toast('✓ Images synced!'),500);
+  }
 }
 
 // YEAR GOALS
@@ -2462,6 +2795,7 @@ function rYReflect(){
 
 // INIT
 load();
+migrateKeysToNewFormat(); // Migrate old format keys to new format with month names
 cleanupCorruptedKeys(); // Fix any corrupted keys from old code versions
 updateDataHealthUI(); // Show data usage stats
 const now=new Date();cY=now.getFullYear();cM=now.getMonth();
@@ -2553,12 +2887,74 @@ window.refreshAllPages = function() {
 console.log('💡 Type debugPlanner() in console for debug info');
 console.log('💡 Type fixDuplicateData() to fix any duplicate data issues');
 console.log('💡 Type refreshAllPages() to force refresh all pages');
+console.log('💡 Type debugImages() to inspect all image data');
+console.log('💡 PARALLEL EDIT SAFETY: Image uploads now use single-key sync with merge logic!');
+
+// Debug function to inspect image data across all keys
+window.debugImages = function() {
+  console.log('=== IMAGE DATA DEBUG ===');
+  let totalImages = 0;
+  const imageKeys = [];
+  
+  Object.keys(db).forEach(key => {
+    const data = db[key];
+    if (!data || typeof data !== 'object') return;
+    
+    // Check all possible image fields
+    const imageFields = [
+      'imgs', 'mantra-imgs', 'todo-imgs', 'learn-imgs', 
+      'dates-imgs', 'notes-imgs', 'hl-imgs', 'wk-imgs',
+      'yg-imgs', 'yr-imgs'
+    ];
+    
+    imageFields.forEach(field => {
+      if (data[field] && Array.isArray(data[field]) && data[field].length > 0) {
+        totalImages += data[field].length;
+        imageKeys.push({
+          key,
+          field,
+          count: data[field].length,
+          sizes: data[field].map(img => `${Math.round(img.length/1024)}KB`)
+        });
+      }
+    });
+  });
+  
+  console.log('📊 Total images found:', totalImages);
+  console.log('📦 Keys with images:', imageKeys.length);
+  if (imageKeys.length > 0) {
+    console.table(imageKeys);
+  } else {
+    console.log('✓ No images found in database');
+  }
+  
+  // Check current day
+  if (aDay) {
+    const dayKey = mkd(aDay);
+    console.log('\n📅 Current open day:', aDay);
+    console.log('   Day key:', dayKey);
+    console.log('   Images:', (gD(aDay, 'imgs') || []).length);
+  }
+  
+  console.log('\n💡 After deleting an image, run debugImages() again to verify deletion');
+  return { totalImages, imageKeys };
+};
+console.log('💡 Type debugImages() to inspect all image data');
 
 // Force sync before closing/refreshing page
-window.addEventListener('beforeunload',()=>{
+window.addEventListener('beforeunload',(e)=>{
   if(syncDebounceTimer){
-    // If there's pending sync, force it immediately
-    forceSyncToSheets();
+    // If there's pending sync, save to localStorage immediately
+    clearTimeout(syncDebounceTimer);
+    syncDebounceTimer=null;
+    localStorage.setItem(SK,JSON.stringify(db));
+    // Use sendBeacon for reliable background sync on page close
+    if(PLANNER_SCRIPT_URL && navigator.sendBeacon){
+      const payload=JSON.stringify({action:'saveAll',data:db});
+      const blob=new Blob([payload],{type:'application/json'});
+      const sent=navigator.sendBeacon(PLANNER_SCRIPT_URL,blob);
+      console.log('📤 Sent data via sendBeacon before page close:',sent);
+    }
   }
 });
 </script>

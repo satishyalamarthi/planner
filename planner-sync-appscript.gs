@@ -50,6 +50,10 @@ function doPost(e) {
         result = saveAllPlannerData(payload.data);
         Logger.log('saveAll completed: ' + JSON.stringify(result));
         return response(result);
+      case 'getKeyData':
+        Logger.log('getKeyData for key: ' + payload.key);
+        result = getKeyData(payload.key);
+        return response(result);
       case 'saveSingle':
         return response(saveSingleEntry(payload.key, payload.value));
       case 'toggleCompletion':
@@ -292,39 +296,59 @@ function saveAllPlannerData(data) {
   return result;
 }
 
-// Save a single entry (for incremental updates)
+// Save a single entry (for incremental updates) - OPTIMIZED FOR BATCH OPERATIONS
 function saveSingleEntry(key, value) {
+  Logger.log('💾 saveSingleEntry called for key: ' + key);
+  
   const sheet = getSheet();
   const timestamp = getISTTimestamp();
   const valueStr = JSON.stringify(value);
   
+  Logger.log('📏 Data size: ' + valueStr.length + ' chars');
+  
   // Check if data needs to be split
   const parts = splitLargeData(key, valueStr);
+  Logger.log('📦 Split into ' + parts.length + ' part(s)');
   
-  // Find and delete existing entries (including any old split parts)
+  // Get all existing data
   const lastRow = sheet.getLastRow();
-  const keysToDelete = [];
+  let existingData = [];
   
   if (lastRow > 1) {
-    const keys = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
-    for (let i = 0; i < keys.length; i++) {
-      const existingKey = keys[i][0];
-      // Delete base key or any of its parts
-      if (existingKey === key || existingKey.startsWith(key + SPLIT_SUFFIX)) {
-        keysToDelete.push(i + 2); // +2 for 0-index and header row
-      }
-    }
+    existingData = sheet.getRange(2, 1, lastRow - 1, 3).getValues();
+    Logger.log('📋 Found ' + existingData.length + ' existing rows in sheet');
   }
   
-  // Delete old entries in reverse order
-  keysToDelete.reverse().forEach(rowNum => {
-    sheet.deleteRow(rowNum);
+  // Filter out rows matching this key (base key and all parts)
+  const filteredData = existingData.filter(row => {
+    const existingKey = row[0];
+    const shouldDelete = existingKey === key || existingKey.startsWith(key + SPLIT_SUFFIX);
+    if (shouldDelete) {
+      Logger.log('🗑️ Removing old row: ' + existingKey);
+    }
+    return !shouldDelete;
   });
   
-  // Add new entry (or multiple parts)
+  Logger.log('✂️ Removed ' + (existingData.length - filteredData.length) + ' old row(s)');
+  
+  // Add new parts to filtered data
   parts.forEach(([partKey, partValue]) => {
-    sheet.appendRow([partKey, partValue, timestamp]);
+    filteredData.push([partKey, partValue, timestamp]);
+    Logger.log('➕ Adding new row: ' + partKey + ' (' + partValue.length + ' chars)');
   });
+  
+  // Clear all data (except header) and write back in one operation
+  if (lastRow > 1) {
+    sheet.getRange(2, 1, lastRow - 1, 3).clearContent();
+    Logger.log('🧹 Cleared sheet');
+  }
+  
+  if (filteredData.length > 0) {
+    sheet.getRange(2, 1, filteredData.length, 3).setValues(filteredData);
+    Logger.log('✍️ Wrote ' + filteredData.length + ' row(s) to sheet in SINGLE batch operation');
+  }
+  
+  Logger.log('✅ saveSingleEntry completed successfully');
   
   return { 
     key: key, 

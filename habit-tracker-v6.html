@@ -803,6 +803,7 @@ const ASSIGNEES = [
   { id:'keerthisri', name:'KeerthiSri', initials:'KS', color:'#d94f6e' },
   { id:'geetanath',  name:'Geetanath',  initials:'GN', color:'#2196a8' },
 ];
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 // ═══════════════════════════════════════════════════════════════
 //  STATE
@@ -1519,9 +1520,11 @@ function dk(d){
   
   // Use local date parts to avoid timezone issues
   const year = normalized.getFullYear();
-  const month = String(normalized.getMonth() + 1).padStart(2, '0');
+  const monthIdx = normalized.getMonth();
+  const month = String(monthIdx + 1).padStart(2, '0');
   const day = String(normalized.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  const monthName = MONTH_NAMES[monthIdx];
+  return `${year}-${month}_${monthName}-${day}-Day`;
 }
 function isDone(hid,k){
   const h=habits.find(x=>x.id===hid);
