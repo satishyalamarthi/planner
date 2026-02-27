@@ -33,6 +33,9 @@ function handle(e) {
       case 'saveQtyLog':   result = saveQtyLog(body);            break;
       case 'savePeriodData': result = savePeriodData(body.periodDates); break;
       case 'saveMoodData':   result = saveMoodData(body.moods);  break;
+      case 'getDataSize':  result = getDataSize();               break;
+      case 'archiveOldData': result = archiveOldData(body.cutoffDate); break;
+      case 'restoreFromArchive': result = restoreFromArchive(body.year); break;
       default:             result = { error: 'Unknown action: ' + action };
     }
 
@@ -681,4 +684,175 @@ function debugShowQtyLogs() {
   Logger.log('\nIf you see rows with missing habitId, either:');
   Logger.log('1. Delete those rows, OR');
   Logger.log('2. Fill in the habitId using showAllHabitIds() to get valid IDs');
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  DATA MANAGEMENT: ARCHIVING & SIZE MONITORING
+// ═══════════════════════════════════════════════════════════════
+
+// Get or create the Archive sheet
+function getArchiveSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName('ArchivedData');
+  
+  if (!sheet) {
+    sheet = ss.insertSheet('ArchivedData');
+    sheet.appendRow(['habitId','assignee','date','done','qtyValue','archivedAt']);
+    sheet.getRange(1, 1, 1, 6).setFontWeight('bold').setBackground('#FFA500').setFontColor('#FFFFFF');
+    sheet.setFrozenRows(1);
+  }
+  
+  return sheet;
+}
+
+// Get data size for monitoring
+function getDataSize() {
+  const sizes = {};
+  let totalRows = 0;
+  
+  const assigneeSheets = [SHEET_NAMES.satish, SHEET_NAMES.keerthisri, SHEET_NAMES.geetanath];
+  
+  assigneeSheets.forEach(sheetName => {
+    const sheet = getOrCreateSheet(sheetName);
+    const rowCount = sheet.getLastRow() - 1; // Exclude header
+    sizes[sheetName] = rowCount;
+    totalRows += rowCount;
+  });
+  
+  // Calculate estimated size (rough estimate: 50 characters per row)
+  const estimatedSize = totalRows * 50;
+  const sizePercent = Math.round((estimatedSize / 50000) * 100);
+  
+  return {
+    totalRows: totalRows,
+    sheets: sizes,
+    estimatedSize: estimatedSize,
+    sizePercent: sizePercent,
+    maxRows: 1000 // Google Sheets limit per sheet = 10M cells, but keep manageable
+  };
+}
+
+// Archive old data (completions and qty logs older than cutoff date)
+function archiveOldData(cutoffDateStr) {
+  Logger.log('▶ archiveOldData called with cutoff: ' + cutoffDateStr);
+  
+  const cutoffDate = new Date(cutoffDateStr);
+  const archiveSheet = getArchiveSheet();
+  const timestamp = new Date().toISOString();
+  
+  let archivedCount = 0;
+  const assigneeSheets = [SHEET_NAMES.satish, SHEET_NAMES.keerthisri, SHEET_NAMES.geetanath];
+  
+  assigneeSheets.forEach(sheetName => {
+    const sheet = getOrCreateSheet(sheetName);
+    const data = sheet.getDataRange().getValues();
+    
+    // Process in reverse to maintain row indices when deleting
+    for (let i = data.length - 1; i >= 1; i--) {
+      const [habitId, date, done, qtyValue] = data[i];
+      
+      if (!habitId || !date) continue;
+      
+      const rowDate = new Date(formatDate(date));
+      
+      if (rowDate < cutoffDate) {
+        // Archive this row
+        const assignee = sheetName.toLowerCase();
+        archiveSheet.appendRow([habitId, assignee, formatDate(date), done || '', qtyValue || '', timestamp]);
+        
+        // Delete from active sheet
+        sheet.deleteRow(i + 1);
+        archivedCount++;
+      }
+    }
+  });
+  
+  Logger.log('✓ Archived ' + archivedCount + ' entries');
+  
+  return {
+    archived: archivedCount,
+    cutoffDate: cutoffDateStr,
+    timestamp: timestamp
+  };
+}
+
+// Restore data from archive (if needed)
+function restoreFromArchive(year) {
+  Logger.log('▶ restoreFromArchive called for year: ' + year);
+  
+  const archiveSheet = getArchiveSheet();
+  const data = archiveSheet.getDataRange().getValues();
+  
+  if (data.length <= 1) {
+    return { restored: 0, message: 'No archived data found' };
+  }
+  
+  let restoredCount = 0;
+  
+  // Process archived rows
+  for (let i = data.length - 1; i >= 1; i--) {
+    const [habitId, assignee, date, done, qtyValue, archivedAt] = data[i];
+    
+    if (!date || !date.toString().includes(year)) continue;
+    
+    // Restore to appropriate assignee sheet
+    const sheetName = SHEET_NAMES[assignee] || SHEET_NAMES.satish;
+    const sheet = getOrCreateSheet(sheetName);
+    
+    // Add back to active sheet
+    sheet.appendRow([habitId, date, done || '', qtyValue || '']);
+    
+    // Remove from archive
+    archiveSheet.deleteRow(i + 1);
+    restoredCount++;
+  }
+  
+  Logger.log('✓ Restored ' + restoredCount + ' entries from archive');
+  
+  return {
+    restored: restoredCount,
+    year: year
+  };
+}
+
+// ── MAINTENANCE: Cleanup duplicate entries ────────────────────
+// Run this manually if you suspect duplicate entries
+function cleanupDuplicates() {
+  Logger.log('=== CLEANUP DUPLICATES ===');
+  
+  let totalRemoved = 0;
+  const assigneeSheets = [SHEET_NAMES.satish, SHEET_NAMES.keerthisri, SHEET_NAMES.geetanath];
+  
+  assigneeSheets.forEach(sheetName => {
+    const sheet = getOrCreateSheet(sheetName);
+    const data = sheet.getDataRange().getValues();
+    
+    const seen = new Set();
+    const toDelete = [];
+    
+    // Find duplicates
+    for (let i = 1; i < data.length; i++) {
+      const [habitId, date] = data[i];
+      const key = habitId + '|' + formatDate(date);
+      
+      if (seen.has(key)) {
+        toDelete.push(i + 1); // Mark for deletion
+      } else {
+        seen.add(key);
+      }
+    }
+    
+    // Delete in reverse order
+    toDelete.reverse().forEach(rowNum => {
+      sheet.deleteRow(rowNum);
+      totalRemoved++;
+    });
+    
+    if (toDelete.length > 0) {
+      Logger.log('Removed ' + toDelete.length + ' duplicates from ' + sheetName);
+    }
+  });
+  
+  Logger.log('✓ Total duplicates removed: ' + totalRemoved);
+  return { removed: totalRemoved };
 }

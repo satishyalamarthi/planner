@@ -509,6 +509,8 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min
   <div class="sb-footer">
     <div class="streak-badge">🔥 <span id="sbStreak">0</span> day streak</div>
     <div id="sbDone" style="font-size:11px">—</div>
+    <div id="dataHealth" style="font-size:10px;margin-top:6px;padding:4px 8px;border-radius:6px;display:none" title="Data storage health"></div>
+    <button onclick="manualArchive()" id="archiveBtn" style="display:none;width:100%;background:linear-gradient(135deg,rgba(107,203,119,.15),rgba(78,205,196,.15));border:1px solid rgba(107,203,119,.3);color:var(--green);font-size:10px;font-weight:700;padding:4px 8px;border-radius:6px;cursor:pointer;margin-top:6px;transition:all .2s" title="Archive data older than 1 year">📦 Archive Old Data</button>
   </div>
 </aside>
 
@@ -987,6 +989,141 @@ async function api(payload, retries = 2) {
 
 let isSyncing = false; // Prevent concurrent syncs
 
+// ═══════════════════════════════════════════════════════════════
+//  DATA MONITORING & ARCHIVING
+// ═══════════════════════════════════════════════════════════════
+let lastDataSize = null;
+
+async function checkDataHealth() {
+  if (!SCRIPT_URL) return;
+  
+  try {
+    const sizeInfo = await api({ action: 'getDataSize' });
+    lastDataSize = sizeInfo;
+    
+    const completionsPercent = sizeInfo.ritual?.completionsPercent || 0;
+    const qtylogsPercent = sizeInfo.ritual?.qtylogsPercent || 0;
+    const maxPercent = Math.max(completionsPercent, qtylogsPercent);
+    
+    const healthEl = document.getElementById('dataHealth');
+    const archiveBtn = document.getElementById('archiveBtn');
+    
+    if (!healthEl) return;
+    
+    // Show health indicator if data > 50%
+    if (maxPercent > 50) {
+      healthEl.style.display = 'block';
+      
+      if (maxPercent >= 90) {
+        healthEl.style.background = 'linear-gradient(135deg,rgba(255,107,107,.2),rgba(255,107,107,.1))';
+        healthEl.style.borderLeft = '3px solid var(--coral)';
+        healthEl.style.color = 'var(--coral)';
+        healthEl.innerHTML = `🚨 ${maxPercent}% full - Archive now!`;
+        if (archiveBtn) archiveBtn.style.display = 'block';
+      } else if (maxPercent >= 70) {
+        healthEl.style.background = 'linear-gradient(135deg,rgba(255,217,61,.2),rgba(255,217,61,.1))';
+        healthEl.style.borderLeft = '3px solid var(--yellow)';
+        healthEl.style.color = 'var(--yellow)';
+        healthEl.innerHTML = `⚠️ ${maxPercent}% full - Consider archiving`;
+        if (archiveBtn) archiveBtn.style.display = 'block';
+      } else {
+        healthEl.style.background = 'linear-gradient(135deg,rgba(107,203,119,.15),rgba(78,205,196,.15))';
+        healthEl.style.borderLeft = '3px solid var(--green)';
+        healthEl.style.color = 'var(--green)';
+        healthEl.innerHTML = `✓ ${maxPercent}% - Healthy`;
+        if (archiveBtn) archiveBtn.style.display = 'none';
+      }
+    } else {
+      healthEl.style.display = 'none';
+      if (archiveBtn) archiveBtn.style.display = 'none';
+    }
+    
+    // Auto-archive if > 95% (critical)
+    if (maxPercent >= 95) {
+      console.warn('🚨 Data at critical level:', maxPercent + '% - Auto-archiving...');
+      await autoArchive();
+    }
+  } catch(e) {
+    console.error('Failed to check data health:', e);
+  }
+}
+
+async function autoArchive() {
+  if (!SCRIPT_URL) return;
+  
+  try {
+    // Archive data older than 1 year
+    const oneYearAgo = new Date();
+    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+    const cutoffDate = oneYearAgo.toISOString().split('T')[0];
+    
+    console.log('🗄️ Auto-archiving data older than:', cutoffDate);
+    
+    const result = await api({ 
+      action: 'archiveOldData', 
+      cutoffDate: cutoffDate 
+    });
+    
+    console.log('✓ Auto-archive complete:', result);
+    
+    if (result.archived > 0) {
+      toast(`🗄️ Archived ${result.archived} old entries`, '✓', true);
+      // Reload to update local data
+      await loadFromSheets();
+    }
+    
+    // Recheck health
+    setTimeout(() => checkDataHealth(), 1000);
+  } catch(e) {
+    console.error('Auto-archive failed:', e);
+  }
+}
+
+async function manualArchive() {
+  if (!SCRIPT_URL) {
+    alert('Please configure Google Sheets sync URL first!');
+    return;
+  }
+  
+  const oneYearAgo = new Date();
+  oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+  const cutoffDate = oneYearAgo.toISOString().split('T')[0];
+  
+  if (!confirm(`Archive all habit data older than ${oneYearAgo.toLocaleDateString()}?\n\nThis will move old completions and quantity logs to a separate archive sheet, keeping your active data small and fast.\n\nArchived data can be restored later if needed.`)) {
+    return;
+  }
+  
+  const healthEl = document.getElementById('dataHealth');
+  if (healthEl) {
+    healthEl.innerHTML = '📦 Archiving...';
+  }
+  
+  try {
+    const result = await api({ 
+      action: 'archiveOldData', 
+      cutoffDate: cutoffDate 
+    });
+    
+    console.log('✓ Manual archive complete:', result);
+    
+    if (result.archived > 0) {
+      toast(`✓ Archived ${result.archived} entries from before ${oneYearAgo.toLocaleDateString()}`, '✓', true);
+      // Reload to update local data
+      await loadFromSheets();
+      // Recheck health
+      setTimeout(() => checkDataHealth(), 1000);
+    } else {
+      toast('No old data to archive', 'ℹ️', false);
+    }
+  } catch(e) {
+    console.error('Manual archive failed:', e);
+    toast('Archive failed: ' + e.message, '⚠', false);
+    if (healthEl) {
+      setTimeout(() => checkDataHealth(), 1000);
+    }
+  }
+}
+
 async function forceCleanSync() {
   if (!SCRIPT_URL) {
     alert('Please configure Google Sheets sync URL first!');
@@ -1269,6 +1406,9 @@ async function loadFromSheets(forceClean = false) {
     if(configBanner) configBanner.classList.remove('show');
     updateAll();
     
+    // Check data health after successful sync
+    setTimeout(() => checkDataHealth(), 500);
+    
     // Show detailed toast for mobile debugging
     const qtyHabitsWithLogs = habits.filter(h => h.type === 'qty' && qtyLogs[h.id] && Object.keys(qtyLogs[h.id]).length > 0);
     if (qtyLogCount > 0) {
@@ -1325,6 +1465,9 @@ async function loadFromSheets(forceClean = false) {
         }
       }
     }
+    
+    // Check data health after sync completes
+    setTimeout(() => checkDataHealth(), 500);
   } catch(e) {
     console.error('Google Sheets sync error:', e);
     setSyncStatus('err', 'Sync failed · using local data');
@@ -2543,7 +2686,12 @@ function initApp(){
       
       // Sync with Google Sheets in the background (non-blocking)
       console.log('Starting background sync with Google Sheets...');
-      setTimeout(() => loadFromSheets(), 100);
+      setTimeout(() => {
+        loadFromSheets().then(() => {
+          // Check data health after initial sync
+          setTimeout(() => checkDataHealth(), 1000);
+        });
+      }, 100);
     } else {
       // Show config banner if no URL is set
       const configBanner = document.getElementById('configBanner');
