@@ -412,7 +412,7 @@ if(window.innerWidth<=768){
   <div class="pgsub" id="mantra-sub">Your intention for the month</div>
   <div class="mwrap"><p>My mantra for <span id="mantra-ml">February 2026</span> 🌟</p><textarea id="mantra-t" placeholder="Write your mantra… e.g. I show up fully, one day at a time. 💛" rows="3" oninput="sM('mantra',this.value)"></textarea></div>
   <div class="card" style="border-top:4px solid var(--pink)"><div class="chead">💭 This month I am attracting</div><textarea id="mantra-w" placeholder="What do you want to feel by end of this month?" rows="3" oninput="sM('mantra-why',this.value)"></textarea></div>
-  <label class="iuz" for="fi-mantra"><div style="font-size:1.2rem">📷</div><p>Upload vision board or handwritten mantra</p><input type="file" id="fi-mantra" accept="image/*" multiple style="display:none" onchange="hImgs('mantra-imgs',this)"></label>
+  <label class="iuz" for="fi-mantra"><div style="font-size:1.2rem">📷</div><p>Upload vision board or handwritten mantra</p><input type="file" id="fi-mantra" accept="image/*" multiple style="position:absolute;opacity:0;width:0;height:0;pointer-events:none" onchange="hImgs('mantra-imgs',this)"></label>
   <div class="istrip" id="mantra-imgs"></div>
 </div>
 <!-- TASKS & LEARN (merged) -->
@@ -425,7 +425,7 @@ if(window.innerWidth<=768){
     <div class="tcol" style="border-top:4px solid var(--orange)"><div class="tch">⚡ <span style="color:var(--orange)">Next in Line</span></div><div id="td-next"></div><button class="abtn" onclick="addTD('next')">+ Add task</button></div>
     <div class="tcol" style="border-top:4px solid var(--teal)"><div class="tch">🌊 <span style="color:var(--teal)">If There's Time</span></div><div id="td-nice"></div><button class="abtn" onclick="addTD('nice')">+ Add task</button></div>
   </div>
-  <label class="iuz" for="fi-todo" style="margin-top:12px"><div style="font-size:1.2rem">📷</div><p>Upload handwritten to-do list</p><input type="file" id="fi-todo" accept="image/*" multiple style="display:none" onchange="hImgs('todo-imgs',this)"></label>
+  <label class="iuz" for="fi-todo" style="margin-top:12px"><div style="font-size:1.2rem">📷</div><p>Upload handwritten to-do list</p><input type="file" id="fi-todo" accept="image/*" multiple style="position:absolute;opacity:0;width:0;height:0;pointer-events:none" onchange="hImgs('todo-imgs',this)"></label>
   <div class="istrip" id="todo-imgs"></div>
   <div class="sec-div" style="margin-top:8px">🌱 Things to Try / Learn</div>
   <div class="card" style="border-top:4px solid var(--teal)">
@@ -433,7 +433,7 @@ if(window.innerWidth<=768){
     <div id="learn-l"></div>
     <button class="abtn" onclick="addLearn()">+ Add something new</button>
   </div>
-  <label class="iuz" for="fi-learn"><div style="font-size:1.2rem">📷</div><p>Upload notes or inspiration</p><input type="file" id="fi-learn" accept="image/*" multiple style="display:none" onchange="hImgs('learn-imgs',this)"></label>
+  <label class="iuz" for="fi-learn"><div style="font-size:1.2rem">📷</div><p>Upload notes or inspiration</p><input type="file" id="fi-learn" accept="image/*" multiple style="position:absolute;opacity:0;width:0;height:0;pointer-events:none" onchange="hImgs('learn-imgs',this)"></label>
   <div class="istrip" id="learn-imgs"></div>
 </div>
 <!-- DATES & BIRTHDAYS (merged) -->
@@ -446,7 +446,7 @@ if(window.innerWidth<=768){
     <div class="evl" id="dates-l"></div>
     <button class="abtn" style="margin-top:9px" onclick="addDate()">+ Add date</button>
   </div>
-  <label class="iuz" for="fi-dates"><div style="font-size:1.2rem">📷</div><p>Upload handwritten appointments</p><input type="file" id="fi-dates" accept="image/*" multiple style="display:none" onchange="hImgs('dates-imgs',this)"></label>
+  <label class="iuz" for="fi-dates"><div style="font-size:1.2rem">📷</div><p>Upload handwritten appointments</p><input type="file" id="fi-dates" accept="image/*" multiple style="position:absolute;opacity:0;width:0;height:0;pointer-events:none" onchange="hImgs('dates-imgs',this)"></label>
   <div class="istrip" id="dates-imgs"></div>
   <div class="sec-div" style="margin-top:8px">🎂 Birthdays</div>
   <div class="card" style="border-top:4px solid var(--pink)">
@@ -461,7 +461,7 @@ if(window.innerWidth<=768){
   <div class="pgsub">Ideas, thoughts, things not to forget</div>
   <div class="sgrid" id="sgrid"></div>
   <button class="abtn" onclick="addSticky()" style="margin-top:8px;max-width:200px">+ Add sticky note</button>
-  <label class="iuz" for="fi-notes" style="margin-top:13px"><div style="font-size:1.2rem">📷</div><p>Upload handwritten notes</p><input type="file" id="fi-notes" accept="image/*" multiple style="display:none" onchange="hImgs('notes-imgs',this)"></label>
+  <label class="iuz" for="fi-notes" style="margin-top:13px"><div style="font-size:1.2rem">📷</div><p>Upload handwritten notes</p><input type="file" id="fi-notes" accept="image/*" multiple style="position:absolute;opacity:0;width:0;height:0;pointer-events:none" onchange="hImgs('notes-imgs',this)"></label>
   <div class="istrip" id="notes-imgs"></div>
 </div>
 <!-- HIGHLIGHTS -->
@@ -477,7 +477,7 @@ if(window.innerWidth<=768){
     <div class="hlc" style="border-color:var(--green)"><h4>💛 Gratitude</h4><textarea id="hl-grat" placeholder="3 things I'm grateful for this month…" rows="4" oninput="sM('hl-grat',this.value)"></textarea></div>
     <div class="hlc" style="border-color:var(--orange)"><h4>🚀 Next Month Focus</h4><textarea id="hl-nxt" placeholder="What do I want to focus on next?" rows="4" oninput="sM('hl-nxt',this.value)"></textarea></div>
   </div>
-  <label class="iuz" for="fi-hl" style="margin-top:13px"><div style="font-size:1.2rem">📷</div><p>Upload highlight photos or handwritten reflection</p><input type="file" id="fi-hl" accept="image/*" multiple style="display:none" onchange="hImgs('hl-imgs',this)"></label>
+  <label class="iuz" for="fi-hl" style="margin-top:13px"><div style="font-size:1.2rem">📷</div><p>Upload highlight photos or handwritten reflection</p><input type="file" id="fi-hl" accept="image/*" multiple style="position:absolute;opacity:0;width:0;height:0;pointer-events:none" onchange="hImgs('hl-imgs',this)"></label>
   <div class="istrip" id="hl-imgs"></div>
 </div>
 <!-- WEEK -->
@@ -526,7 +526,7 @@ if(window.innerWidth<=768){
   <div class="card" style="margin-top:14px;border-top:4px solid var(--navy)">
     <div class="chead">🌙 Weekly Journal Reflection</div>
     <textarea id="wk-jrnl" placeholder="How did the week go? What went well? What was hard?" rows="5" oninput="sW('jrnl',this.value)"></textarea>
-    <label class="iuz" for="fi-wk"><div style="font-size:1.2rem">📷</div><p>Upload handwritten journal pages</p><input type="file" id="fi-wk" accept="image/*" multiple style="display:none" onchange="hImgs('wk-imgs',this)"></label>
+    <label class="iuz" for="fi-wk"><div style="font-size:1.2rem">📷</div><p>Upload handwritten journal pages</p><input type="file" id="fi-wk" accept="image/*" multiple style="position:absolute;opacity:0;width:0;height:0;pointer-events:none" onchange="hImgs('wk-imgs',this)"></label>
     <div class="istrip" id="wk-imgs"></div>
   </div>
 </div>
@@ -540,7 +540,7 @@ if(window.innerWidth<=768){
     <div>
       <div class="vb-sec-lbl">✦ Board Images</div>
       <div class="vb-full-imgs" id="vb-full-imgs"></div>
-      <label class="iuz" for="fi-vb" style="border-color:rgba(255,255,255,.2);cursor:pointer"><div style="font-size:1.2rem">📷</div><p style="color:rgba(255,255,255,.5)">Upload images for your vision board — tap to view full size</p><input type="file" id="fi-vb" accept="image/*" multiple style="display:none" onchange="hVBImgs(this)"></label>
+      <label class="iuz" for="fi-vb" style="border-color:rgba(255,255,255,.2);cursor:pointer"><div style="font-size:1.2rem">📷</div><p style="color:rgba(255,255,255,.5)">Upload images for your vision board — tap to view full size</p><input type="file" id="fi-vb" accept="image/*" multiple style="position:absolute;opacity:0;width:0;height:0;pointer-events:none" onchange="hVBImgs(this)"></label>
     </div>
     <!-- POWER WORDS -->
     <div>
@@ -561,7 +561,7 @@ if(window.innerWidth<=768){
   <div class="card" style="border-top:5px solid var(--yellow)"><div class="chead">💫 How do I want to FEEL this year?</div><textarea id="yg-feel" placeholder="Describe the feelings you want to experience… joyful, grounded, confident, free…" rows="3" oninput="sY('yg-feel',this.value)"></textarea></div>
   <div id="yg-areas"></div>
   <div class="card" style="border-top:5px solid var(--purple)"><div class="chead">🚫 What I'm Letting Go Of</div><textarea id="yg-letgo" placeholder="Habits, thoughts, relationships, patterns I'm releasing…" rows="3" oninput="sY('yg-letgo',this.value)"></textarea></div>
-  <label class="iuz" for="fi-yg"><div style="font-size:1.2rem">📷</div><p>Upload handwritten goals</p><input type="file" id="fi-yg" accept="image/*" multiple style="display:none" onchange="hYImgs('yg-imgs',this)"></label>
+  <label class="iuz" for="fi-yg"><div style="font-size:1.2rem">📷</div><p>Upload handwritten goals</p><input type="file" id="fi-yg" accept="image/*" multiple style="position:absolute;opacity:0;width:0;height:0;pointer-events:none" onchange="hYImgs('yg-imgs',this)"></label>
   <div class="istrip" id="yg-imgs"></div>
 </div>
 <!-- YEAR REFLECTION -->
@@ -579,7 +579,7 @@ if(window.innerWidth<=768){
   <div class="yr-card"><div style="position:absolute;top:0;left:0;right:0;height:5px;background:var(--purple)"></div><div class="yr-q"><div class="qnum" style="background:var(--purple)">4</div>🪞 What did you learn about yourself?</div><textarea id="yr-4" placeholder="About your strength, needs, values, patterns, what makes you come alive…" rows="5" oninput="sYR('yr-4',this.value)"></textarea></div>
   <div class="yr-card"><div style="position:absolute;top:0;left:0;right:0;height:5px;background:var(--blue)"></div><div class="yr-q"><div class="qnum" style="background:var(--blue)">5</div>🌅 What will you carry forward into next year?</div><textarea id="yr-5" placeholder="Habits, people, mindsets, practices, dreams — what comes with you?" rows="5" oninput="sYR('yr-5',this.value)"></textarea></div>
   <div class="yr-card"><div style="position:absolute;top:0;left:0;right:0;height:5px;background:var(--pink)"></div><div class="yr-q"><div class="qnum" style="background:var(--pink)">6</div>💌 A letter to myself</div><textarea id="yr-6" placeholder="Write a note to yourself — celebrate how far you've come, encourage the person you're becoming…" rows="7" oninput="sYR('yr-6',this.value)"></textarea></div>
-  <label class="iuz" for="fi-yr"><div style="font-size:1.2rem">📷</div><p>Upload photos from this year's memories</p><input type="file" id="fi-yr" accept="image/*" multiple style="display:none" onchange="hYImgs('yr-imgs',this)"></label>
+  <label class="iuz" for="fi-yr"><div style="font-size:1.2rem">📷</div><p>Upload photos from this year's memories</p><input type="file" id="fi-yr" accept="image/*" multiple style="position:absolute;opacity:0;width:0;height:0;pointer-events:none" onchange="hYImgs('yr-imgs',this)"></label>
   <div class="istrip" id="yr-imgs"></div>
 </div>
 </div><!-- end main-wrapper -->
@@ -601,7 +601,7 @@ if(window.innerWidth<=768){
       <div class="grat-item"><span>2️⃣</span><input type="text" id="dg2" placeholder="I'm grateful for…" oninput="saveDG()"></div>
       <div class="grat-item"><span>3️⃣</span><input type="text" id="dg3" placeholder="I'm grateful for…" oninput="saveDG()"></div>
     </div>
-    <label class="iuz" for="fi-day" style="margin-top:10px"><div style="font-size:1.2rem">📷</div><p>📸 Tap to add photos — tap photo to view full size</p><input type="file" id="fi-day" accept="image/*" multiple style="display:none" onchange="hDayImgs(this)"></label>
+    <label class="iuz" for="fi-day" style="margin-top:10px"><div style="font-size:1.2rem">📷</div><p>📸 Tap to add photos — tap photo to view full size</p><input type="file" id="fi-day" accept="image/*" multiple style="position:absolute;opacity:0;width:0;height:0;pointer-events:none" onchange="hDayImgs(this)"></label>
     <div class="istrip" id="modal-imgs"></div>
   </div>
 </div>
